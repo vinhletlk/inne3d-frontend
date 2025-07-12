@@ -98,16 +98,6 @@ function handleDragOver(event) {
 function handleDragLeave(event) {
     event.preventDefault();
     event.currentTarget.classList.remove('dragover');
-}
-
-/**
- * Handles the 'drop' event for the file upload area.
- * Processes the dropped file if it's of a valid type.
- * @param {Event} event - The drop event.
- */
-function handleDrop(event) {
-    event.preventDefault();
-    event.currentTarget.classList.remove('dragover');
     
     const files = Array.from(event.dataTransfer.files);
     files.forEach(file => {
@@ -533,7 +523,7 @@ function submitOrder() {
         name: document.getElementById('customerName').value.trim(),
         phone: document.getElementById('customerPhone').value.trim(),
         address: document.getElementById('customerAddress').value.trim(),
-        email: "", // nếu có thể nhập thêm, thêm trường input email
+        email: "", // If you have an email input field, get its value here
         quote: {
             filename: filenameList,
             mass_grams: totalMass,
