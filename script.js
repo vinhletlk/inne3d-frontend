@@ -98,6 +98,16 @@ function handleDragOver(event) {
 function handleDragLeave(event) {
     event.preventDefault();
     event.currentTarget.classList.remove('dragover');
+}
+
+/**
+ * Handles the 'drop' event for the file upload area.
+ * Processes dropped files and adds them to the upload queue.
+ * @param {Event} event - The drop event.
+ */
+function handleDrop(event) {
+    event.preventDefault();
+    event.currentTarget.classList.remove('dragover');
     
     const files = Array.from(event.dataTransfer.files);
     files.forEach(file => {
@@ -155,6 +165,14 @@ function uploadFile(fileEntry) {
             uploadedFiles[index].mass_grams = data.mass_grams;
             uploadedFiles[index].volume_cm3 = data.volume_cm3;
             uploadedFiles[index].processing = false; // Mark as processed
+            
+            // Add optimization info if available
+            if (data.was_optimized) {
+                uploadedFiles[index].was_optimized = true;
+                uploadedFiles[index].original_size_mb = data.original_size_mb;
+                uploadedFiles[index].optimized_size_mb = data.optimized_size_mb;
+                uploadedFiles[index].compression_ratio = data.compression_ratio;
+            }
         }
         updateFileListUI(); // Update UI to show results for this file
         calculatePrice(); // Recalculate total price
@@ -190,15 +208,24 @@ function uploadFile(fileEntry) {
  */
 function updateFileListUI() {
     const uploadedFilesList = document.getElementById('uploadedFilesList');
+    if (!uploadedFilesList) return; // If element doesn't exist, skip
+    
     uploadedFilesList.innerHTML = ''; // Clear existing list
 
     let totalMass = 0;
 
     if (uploadedFiles.length === 0) {
-        document.getElementById('fileListContainer').classList.add('hidden');
-        document.getElementById('summaryFileCount').textContent = '0';
-        document.getElementById('summaryTotalMass').textContent = '---';
-        document.getElementById('totalMassDisplay').classList.add('hidden');
+        const fileListContainer = document.getElementById('fileListContainer');
+        if (fileListContainer) fileListContainer.classList.add('hidden');
+        
+        const summaryFileCount = document.getElementById('summaryFileCount');
+        if (summaryFileCount) summaryFileCount.textContent = '0';
+        
+        const summaryTotalMass = document.getElementById('summaryTotalMass');
+        if (summaryTotalMass) summaryTotalMass.textContent = '---';
+        
+        const totalMassDisplay = document.getElementById('totalMassDisplay');
+        if (totalMassDisplay) totalMassDisplay.classList.add('hidden');
         return;
     }
 
@@ -211,13 +238,25 @@ function updateFileListUI() {
             totalMass += fileEntry.mass_grams;
         }
 
+        let optimizationInfo = '';
+        if (fileEntry.was_optimized) {
+            optimizationInfo = `
+                <div class="mt-2 text-xs text-blue-600">
+                    <div>Đã tối ưu: ${fileEntry.original_size_mb}MB → ${fileEntry.optimized_size_mb}MB (${fileEntry.compression_ratio}%)</div>
+                </div>
+            `;
+        }
+
         listItem.innerHTML = `
             <div class="flex items-center flex-grow">
                 <svg class="h-5 w-5 text-gray-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                 </svg>
-                <span class="text-gray-900 font-medium text-sm truncate">${fileEntry.name}</span>
-                <span class="ml-auto text-gray-600 text-xs">${massText}</span>
+                <div class="flex-grow">
+                    <span class="text-gray-900 font-medium text-sm truncate">${fileEntry.name}</span>
+                    <span class="ml-auto text-gray-600 text-xs">${massText}</span>
+                    ${optimizationInfo}
+                </div>
             </div>
             <button type="button" onclick="removeFile(${index})" class="ml-3 text-red-500 hover:text-red-700">
                 <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -228,11 +267,20 @@ function updateFileListUI() {
         uploadedFilesList.appendChild(listItem);
     });
 
-    document.getElementById('fileListContainer').classList.remove('hidden');
-    document.getElementById('summaryFileCount').textContent = uploadedFiles.length;
-    document.getElementById('totalMassAmount').textContent = `${totalMass.toFixed(2)} grams`;
-    document.getElementById('summaryTotalMass').textContent = `${totalMass.toFixed(2)} grams`;
-    document.getElementById('totalMassDisplay').classList.remove('hidden');
+    const fileListContainer = document.getElementById('fileListContainer');
+    if (fileListContainer) fileListContainer.classList.remove('hidden');
+    
+    const summaryFileCount = document.getElementById('summaryFileCount');
+    if (summaryFileCount) summaryFileCount.textContent = uploadedFiles.length;
+    
+    const totalMassAmount = document.getElementById('totalMassAmount');
+    if (totalMassAmount) totalMassAmount.textContent = `${totalMass.toFixed(2)} grams`;
+    
+    const summaryTotalMass = document.getElementById('summaryTotalMass');
+    if (summaryTotalMass) summaryTotalMass.textContent = `${totalMass.toFixed(2)} grams`;
+    
+    const totalMassDisplay = document.getElementById('totalMassDisplay');
+    if (totalMassDisplay) totalMassDisplay.classList.remove('hidden');
 }
 
 /**
@@ -273,14 +321,18 @@ function selectTechnology(element, technology) {
     element.classList.add('border-primary');
     
     selectedTechnology = technology; // Store the selected technology
-    document.getElementById('summaryTechnology').textContent = technology === 'FDM' ? 'FDM (Nhựa)' : 'Resin (Nhựa lỏng)';
+    
+    const summaryTechnology = document.getElementById('summaryTechnology');
+    if (summaryTechnology) {
+        summaryTechnology.textContent = technology === 'FDM' ? 'FDM (Nhựa)' : 'Resin (Nhựa lỏng)';
+    }
     
     // Display the corresponding technology image and description
     const techImageDisplay = document.getElementById('techImageDisplay');
     const techImage = document.getElementById('techImage');
     const techDescription = document.getElementById('techDescription');
 
-    if (TECH_IMAGES[technology]) {
+    if (TECH_IMAGES[technology] && techImageDisplay && techImage && techDescription) {
         techImage.src = TECH_IMAGES[technology].src;
         techImage.alt = `Máy in 3D ${technology}`;
         techDescription.textContent = TECH_IMAGES[technology].description;
@@ -288,7 +340,7 @@ function selectTechnology(element, technology) {
         // Trigger reflow to restart animation
         void techImageDisplay.offsetWidth; 
         techImageDisplay.classList.add('active');
-    } else {
+    } else if (techImageDisplay) {
         techImageDisplay.classList.remove('active');
         techImageDisplay.classList.add('hidden');
     }
@@ -300,8 +352,12 @@ function selectTechnology(element, technology) {
     // Reset selected color and resolution if technology changes
     selectedColor = null;
     selectedResolution = null;
-    document.getElementById('summaryColor').textContent = 'Chưa chọn';
-    document.getElementById('summaryResolution').textContent = 'Chưa chọn';
+    
+    const summaryColor = document.getElementById('summaryColor');
+    if (summaryColor) summaryColor.textContent = 'Chưa chọn';
+    
+    const summaryResolution = document.getElementById('summaryResolution');
+    if (summaryResolution) summaryResolution.textContent = 'Chưa chọn';
 
     // If file data is available, calculate the price immediately
     if (uploadedFiles.length > 0) {
@@ -317,11 +373,15 @@ function selectTechnology(element, technology) {
  */
 function renderColorOptions(technology) {
     const colorOptionsContainer = document.getElementById('colorOptions');
+    if (!colorOptionsContainer) return;
+    
     colorOptionsContainer.innerHTML = ''; // Clear existing options
 
     const availableColors = COLORS[technology] || [];
     if (availableColors.length > 0) {
-        document.getElementById('colorSelectionSection').classList.remove('hidden');
+        const colorSelectionSection = document.getElementById('colorSelectionSection');
+        if (colorSelectionSection) colorSelectionSection.classList.remove('hidden');
+        
         availableColors.forEach(color => {
             const colorDiv = document.createElement('div');
             colorDiv.className = 'flex items-center p-2 border border-gray-300 rounded-md cursor-pointer hover:bg-gray-50 transition-colors';
@@ -334,7 +394,8 @@ function renderColorOptions(technology) {
             colorOptionsContainer.appendChild(colorDiv);
         });
     } else {
-        document.getElementById('colorSelectionSection').classList.add('hidden');
+        const colorSelectionSection = document.getElementById('colorSelectionSection');
+        if (colorSelectionSection) colorSelectionSection.classList.add('hidden');
     }
 }
 
@@ -344,7 +405,9 @@ function renderColorOptions(technology) {
  */
 function selectColor(colorName) {
     selectedColor = colorName;
-    document.getElementById('summaryColor').textContent = colorName;
+    
+    const summaryColor = document.getElementById('summaryColor');
+    if (summaryColor) summaryColor.textContent = colorName;
 
     // Highlight selected color
     document.querySelectorAll('#colorOptions > div').forEach(div => {
@@ -363,9 +426,13 @@ function selectColor(colorName) {
  */
 function renderResolutionOptions() {
     const resolutionOptionsContainer = document.getElementById('resolutionOptions');
+    if (!resolutionOptionsContainer) return;
+    
     resolutionOptionsContainer.innerHTML = ''; // Clear existing options
 
-    document.getElementById('resolutionSelectionSection').classList.remove('hidden');
+    const resolutionSelectionSection = document.getElementById('resolutionSelectionSection');
+    if (resolutionSelectionSection) resolutionSelectionSection.classList.remove('hidden');
+    
     RESOLUTIONS.forEach(resolution => {
         const resolutionDiv = document.createElement('div');
         resolutionDiv.className = 'flex items-center p-2 border border-gray-300 rounded-md cursor-pointer hover:bg-gray-50 transition-colors';
@@ -384,7 +451,9 @@ function renderResolutionOptions() {
  */
 function selectResolution(resolutionValue) {
     selectedResolution = resolutionValue;
-    document.getElementById('summaryResolution').textContent = `${resolutionValue} micron`;
+    
+    const summaryResolution = document.getElementById('summaryResolution');
+    if (summaryResolution) summaryResolution.textContent = `${resolutionValue} micron`;
 
     // Highlight selected resolution
     document.querySelectorAll('#resolutionOptions > div').forEach(div => {
@@ -405,7 +474,8 @@ function calculatePrice() {
     const totalMass = uploadedFiles.reduce((sum, file) => sum + (file.mass_grams || 0), 0);
 
     if (totalMass === 0 || !selectedTechnology) {
-        document.getElementById('priceDisplay').classList.add('hidden');
+        const priceDisplay = document.getElementById('priceDisplay');
+        if (priceDisplay) priceDisplay.classList.add('hidden');
         return;
     }
     
@@ -434,24 +504,17 @@ function calculatePrice() {
     .catch(error => {
         console.error('Price calculation error:', error);
         showError('Lỗi khi tính giá. Vui lòng thử lại.');
-        document.getElementById('priceDisplay').classList.add('hidden');
+        const priceDisplay = document.getElementById('priceDisplay');
+        if (priceDisplay) priceDisplay.classList.add('hidden');
     });
 }
 
-/**
- * Displays the calculated price on the UI.
- * @param {number} price - The calculated price amount.
- */
 function displayPrice(price) {
     document.getElementById('priceAmount').textContent = `${price.toLocaleString('vi-VN')} VNĐ`;
     document.getElementById('priceDisplay').classList.remove('hidden');
 }
 
-// --- Form Validation and Submission ---
-
-/**
- * Initializes event listeners for form input validation.
- */
+// Form Validation and Submission
 function initializeFormValidation() {
     const inputs = ['customerName', 'customerPhone', 'customerAddress'];
     
@@ -462,21 +525,15 @@ function initializeFormValidation() {
     });
 }
 
-/**
- * Validates a single form field and applies visual feedback.
- * @param {Event} event - The event object (e.g., 'blur' or 'input').
- * @returns {boolean} - True if the field is valid, false otherwise.
- */
 function validateField(event) {
     const field = event.target;
     const value = field.value.trim();
-    const parent = field.closest('.form-input-group');
-
+    
     if (field.hasAttribute('required') && !value) {
-        parent.classList.add('border-red-500');
+        field.classList.add('border-red-500');
         return false;
     } else {
-        parent.classList.remove('border-red-500');
+        field.classList.remove('border-red-500');
         return true;
     }
 }
@@ -542,8 +599,11 @@ function submitOrder() {
     submitBtn.textContent = 'Đang xử lý...';
     submitBtn.disabled = true;
 
-    document.getElementById('mainForm').classList.add('hidden');
-    document.getElementById('orderProgressDisplay').classList.remove('hidden');
+    const mainForm = document.getElementById('mainForm');
+    const orderProgressDisplay = document.getElementById('orderProgressDisplay');
+    
+    if (mainForm) mainForm.classList.add('hidden');
+    if (orderProgressDisplay) orderProgressDisplay.classList.remove('hidden');
 
     showOrderProgress('Đang gửi đơn hàng của bạn...');
     setTimeout(() => showOrderProgress('Đã nhận đơn hàng, đang xác nhận thông tin...'), 2000);
@@ -564,16 +624,17 @@ function submitOrder() {
     .then(data => {
         setTimeout(() => {
             showOrderProgress('Đơn hàng đã được xử lý thành công! Chúng tôi sẽ liên hệ sớm nhất.');
-            document.getElementById('successMessage').classList.add('active');
-            document.getElementById('orderProgressDisplay').classList.add('hidden');
+            const successMessage = document.getElementById('successMessage');
+            if (successMessage) successMessage.classList.add('active');
+            if (orderProgressDisplay) orderProgressDisplay.classList.add('hidden');
         }, 8000);
     })
     .catch(error => {
         console.error('Order submission error:', error);
         setTimeout(() => {
             showError('Lỗi khi đặt hàng. Vui lòng thử lại.');
-            document.getElementById('orderProgressDisplay').classList.add('hidden');
-            document.getElementById('mainForm').classList.remove('hidden');
+            if (orderProgressDisplay) orderProgressDisplay.classList.add('hidden');
+            if (mainForm) mainForm.classList.remove('hidden');
             submitBtn.textContent = originalText;
             submitBtn.disabled = false;
         }, 8000);
@@ -586,6 +647,8 @@ function submitOrder() {
  */
 function showOrderProgress(message) {
     const progressSteps = document.getElementById('progressSteps');
+    if (!progressSteps) return;
+    
     const stepDiv = document.createElement('div');
     stepDiv.className = 'flex items-center text-gray-700 animate-fade-in-up';
     stepDiv.innerHTML = `
@@ -598,7 +661,6 @@ function showOrderProgress(message) {
     // Scroll to bottom to show latest message
     progressSteps.scrollTop = progressSteps.scrollHeight;
 }
-
 
 /**
  * Performs a comprehensive validation of all form fields.
@@ -643,36 +705,26 @@ function validateForm() {
     return isValid;
 }
 
-// --- UI Utility Functions ---
-
-/**
- * Displays the success message and hides the main form.
- */
+// UI Functions
 function showSuccess() {
     document.getElementById('successMessage').classList.add('active');
     document.getElementById('mainForm').classList.add('hidden');
 }
 
-/**
- * Displays a temporary error notification.
- * @param {string} message - The error message to display.
- */
 function showError(message) {
-    const existingError = document.querySelector('.error-notification');
-    if (existingError) existingError.remove();
-
+    // Create error notification
     const errorDiv = document.createElement('div');
-    errorDiv.className = 'error-notification fixed top-4 right-4 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-fade-in-down';
+    errorDiv.className = 'fixed top-4 right-4 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg z-50';
     errorDiv.textContent = message;
     
     document.body.appendChild(errorDiv);
     
+    // Remove after 5 seconds
     setTimeout(() => {
         if (errorDiv.parentNode) {
-            errorDiv.classList.add('animate-fade-out-up');
-            errorDiv.addEventListener('animationend', () => errorDiv.remove());
+            errorDiv.parentNode.removeChild(errorDiv);
         }
-    }, 4000);
+    }, 5000);
 }
 
 /**
@@ -687,15 +739,22 @@ function resetForm() {
     orderData = {};
     
     // Hide success message and show main form
-    document.getElementById('successMessage').classList.remove('active');
-    document.getElementById('orderProgressDisplay').classList.add('hidden'); // Hide progress display
-    document.getElementById('mainForm').classList.remove('hidden');
+    const successMessage = document.getElementById('successMessage');
+    if (successMessage) successMessage.classList.remove('active');
+    
+    const orderProgressDisplay = document.getElementById('orderProgressDisplay');
+    if (orderProgressDisplay) orderProgressDisplay.classList.add('hidden');
+    
+    const mainForm = document.getElementById('mainForm');
+    if (mainForm) mainForm.classList.remove('hidden');
     
     // Clear progress steps
-    document.getElementById('progressSteps').innerHTML = '';
+    const progressSteps = document.getElementById('progressSteps');
+    if (progressSteps) progressSteps.innerHTML = '';
 
     // Reset file upload section
-    document.getElementById('fileInput').value = ''; // Clear file input value
+    const fileInput = document.getElementById('fileInput');
+    if (fileInput) fileInput.value = ''; // Clear file input value
     updateFileListUI(); // Clear file list UI
     document.getElementById('uploadLoading').classList.remove('active');
     clearSTLViewer(); // Clear the 3D viewer
@@ -706,27 +765,56 @@ function resetForm() {
         card.classList.remove('border-primary');
         card.classList.add('border-gray-300');
     });
-    document.getElementById('techImageDisplay').classList.remove('active');
-    document.getElementById('techImageDisplay').classList.add('hidden');
-    document.getElementById('techImage').src = '';
-    document.getElementById('techDescription').textContent = '';
+    
+    const techImageDisplay = document.getElementById('techImageDisplay');
+    if (techImageDisplay) {
+        techImageDisplay.classList.remove('active');
+        techImageDisplay.classList.add('hidden');
+    }
+    
+    const techImage = document.getElementById('techImage');
+    if (techImage) techImage.src = '';
+    
+    const techDescription = document.getElementById('techDescription');
+    if (techDescription) techDescription.textContent = '';
 
-    document.getElementById('priceDisplay').classList.add('hidden');
-    document.getElementById('summaryTechnology').textContent = 'Chưa chọn';
-    document.getElementById('summaryColor').textContent = 'Chưa chọn';
-    document.getElementById('summaryResolution').textContent = 'Chưa chọn';
-    document.getElementById('summaryTotalMass').textContent = '---';
+    const priceDisplay = document.getElementById('priceDisplay');
+    if (priceDisplay) priceDisplay.classList.add('hidden');
+    
+    const summaryTechnology = document.getElementById('summaryTechnology');
+    if (summaryTechnology) summaryTechnology.textContent = 'Chưa chọn';
+    
+    const summaryColor = document.getElementById('summaryColor');
+    if (summaryColor) summaryColor.textContent = 'Chưa chọn';
+    
+    const summaryResolution = document.getElementById('summaryResolution');
+    if (summaryResolution) summaryResolution.textContent = 'Chưa chọn';
+    
+    const summaryTotalMass = document.getElementById('summaryTotalMass');
+    if (summaryTotalMass) summaryTotalMass.textContent = '---';
     
     // Reset color and resolution sections
-    document.getElementById('colorSelectionSection').classList.add('hidden');
-    document.getElementById('resolutionSelectionSection').classList.add('hidden');
-    document.getElementById('colorOptions').innerHTML = '';
-    document.getElementById('resolutionOptions').innerHTML = '';
+    const colorSelectionSection = document.getElementById('colorSelectionSection');
+    if (colorSelectionSection) colorSelectionSection.classList.add('hidden');
+    
+    const resolutionSelectionSection = document.getElementById('resolutionSelectionSection');
+    if (resolutionSelectionSection) resolutionSelectionSection.classList.add('hidden');
+    
+    const colorOptions = document.getElementById('colorOptions');
+    if (colorOptions) colorOptions.innerHTML = '';
+    
+    const resolutionOptions = document.getElementById('resolutionOptions');
+    if (resolutionOptions) resolutionOptions.innerHTML = '';
 
     // Clear customer information form fields
-    document.getElementById('customerName').value = '';
-    document.getElementById('customerPhone').value = '';
-    document.getElementById('customerAddress').value = '';
+    const customerName = document.getElementById('customerName');
+    if (customerName) customerName.value = '';
+    
+    const customerPhone = document.getElementById('customerPhone');
+    if (customerPhone) customerPhone.value = '';
+    
+    const customerAddress = document.getElementById('customerAddress');
+    if (customerAddress) customerAddress.value = '';
     
     // Remove any validation error borders
     document.querySelectorAll('.form-input-group').forEach(group => {
@@ -744,6 +832,7 @@ function resetForm() {
  */
 function initializeSTLViewer() {
     const canvas = document.getElementById('stlViewer');
+    if (!canvas) return; // If element doesn't exist, skip
     
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0xf0f0f0); // Light grey background
@@ -762,18 +851,6 @@ function initializeSTLViewer() {
     scene.add(directionalLight);
 
     stlLoader = new THREE.STLLoader();
-
-    // Basic OrbitControls for interaction (optional, but good for user experience)
-    // This requires OrbitControls.js, which is not included by default.
-    // For simplicity, I'll omit full OrbitControls setup but keep the idea.
-    // If you want full controls, you'd need:
-    // <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
-    // const controls = new THREE.OrbitControls(camera, renderer.domElement);
-    // controls.enableDamping = true; // an animation loop is required when damping is enabled
-    // controls.dampingFactor = 0.25;
-    // controls.screenSpacePanning = false;
-    // controls.minDistance = 10;
-    // controls.maxDistance = 500;
 
     // Handle mouse interaction for basic rotation (manual orbit-like behavior)
     let isDragging = false;
@@ -807,10 +884,12 @@ function initializeSTLViewer() {
     // Handle window resize
     window.addEventListener('resize', () => {
         const viewerCanvas = document.getElementById('stlViewer');
-        camera.aspect = viewerCanvas.clientWidth / viewerCanvas.clientHeight;
-        camera.updateProjectionMatrix();
-        renderer.setSize(viewerCanvas.clientWidth, viewerCanvas.clientHeight);
-        animateSTLViewer();
+        if (viewerCanvas && camera && renderer) {
+            camera.aspect = viewerCanvas.clientWidth / viewerCanvas.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(viewerCanvas.clientWidth, viewerCanvas.clientHeight);
+            animateSTLViewer();
+        }
     });
 
     animateSTLViewer(); // Start the animation loop
@@ -821,6 +900,8 @@ function initializeSTLViewer() {
  * @param {File} stlFile - The STL file object to render.
  */
 function renderSTLPreview(stlFile) {
+    if (!stlLoader) return; // If Three.js is not loaded, skip
+    
     const reader = new FileReader();
     reader.onload = function (event) {
         const geometry = stlLoader.parse(event.target.result);
@@ -854,8 +935,11 @@ function renderSTLPreview(stlFile) {
         camera.position.y = maxDim * 0.5;
         camera.lookAt(scene.position);
 
-        document.getElementById('stlViewer').classList.remove('hidden');
-        document.getElementById('stlViewer').classList.add('active');
+        const stlViewer = document.getElementById('stlViewer');
+        if (stlViewer) {
+            stlViewer.classList.remove('hidden');
+            stlViewer.classList.add('active');
+        }
         animateSTLViewer();
     };
     reader.readAsArrayBuffer(stlFile);
@@ -871,8 +955,11 @@ function clearSTLViewer() {
         stlMesh.material.dispose();
         stlMesh = null;
     }
-    document.getElementById('stlViewer').classList.remove('active');
-    document.getElementById('stlViewer').classList.add('hidden');
+    const stlViewer = document.getElementById('stlViewer');
+    if (stlViewer) {
+        stlViewer.classList.remove('active');
+        stlViewer.classList.add('hidden');
+    }
     animateSTLViewer();
 }
 
@@ -880,8 +967,70 @@ function clearSTLViewer() {
  * Animation loop for the Three.js viewer.
  */
 function animateSTLViewer() {
+    if (!renderer || !scene || !camera) return;
+    
     requestAnimationFrame(animateSTLViewer);
-    // If using OrbitControls, uncomment controls.update()
-    // if (controls) controls.update(); 
     renderer.render(scene, camera);
 }
+
+// --- UI Utility Functions ---
+
+/**
+ * Displays the success message and hides the main form.
+ */
+function showSuccess() {
+    const successMessage = document.getElementById('successMessage');
+    if (successMessage) successMessage.classList.add('active');
+    
+    const mainForm = document.getElementById('mainForm');
+    if (mainForm) mainForm.classList.add('hidden');
+}
+
+/**
+ * Displays a temporary error notification.
+ * @param {string} message - The error message to display.
+ */
+function showError(message) {
+    const existingError = document.querySelector('.error-notification');
+    if (existingError) existingError.remove();
+
+    const errorDiv = document.createElement('div');
+    errorDiv.className = 'error-notification fixed top-4 right-4 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-fade-in-down';
+    errorDiv.textContent = message;
+    
+    document.body.appendChild(errorDiv);
+    
+    setTimeout(() => {
+        if (errorDiv.parentNode) {
+            errorDiv.classList.add('animate-fade-out-up');
+            errorDiv.addEventListener('animationend', () => errorDiv.remove());
+        }
+    }, 4000);
+}
+
+// --- Utility Functions ---
+
+/**
+ * Formats a number as Vietnamese currency.
+ * @param {number} amount - The amount to format.
+ * @returns {string} - The formatted currency string.
+ */
+function formatCurrency(amount) {
+    return new Intl.NumberFormat('vi-VN', {
+        style: 'currency',
+        currency: 'VND'
+    }).format(amount);
+}
+
+/**
+ * Formats file size in bytes to human readable format.
+ * @param {number} bytes - The size in bytes.
+ * @returns {string} - The formatted size string.
+ */
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+} 
