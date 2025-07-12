@@ -524,33 +524,37 @@ function submitOrder() {
     if (!validateForm()) {
         return;
     }
-    
-    // Prepare order data
+
+    const totalMass = uploadedFiles.reduce((sum, f) => sum + (f.mass_grams || 0), 0);
+    const totalVolume = uploadedFiles.reduce((sum, f) => sum + (f.volume_cm3 || 0), 0);
+    const filenameList = uploadedFiles.map(f => f.name).join(', ');
+
     orderData = {
-        files: uploadedFiles.map(f => ({
-            name: f.name,
-            mass_grams: f.mass_grams,
-            volume_cm3: f.volume_cm3
-        })),
-        technology: selectedTechnology,
-        color: selectedColor,
-        resolution: selectedResolution,
-        customer_name: document.getElementById('customerName').value.trim(),
-        customer_phone: document.getElementById('customerPhone').value.trim(),
-        customer_address: document.getElementById('customerAddress').value.trim(),
-        order_date: new Date().toISOString()
+        name: document.getElementById('customerName').value.trim(),
+        phone: document.getElementById('customerPhone').value.trim(),
+        address: document.getElementById('customerAddress').value.trim(),
+        email: "", // nếu có thể nhập thêm, thêm trường input email
+        quote: {
+            filename: filenameList,
+            mass_grams: totalMass,
+            volume_cm3: totalVolume,
+            technology: selectedTechnology,
+            material: selectedTechnology === 'FDM' ? 'PLA' : 'Resin',
+            color: selectedColor,
+            resolution: selectedResolution,
+            price: parseInt(document.getElementById('priceAmount').textContent.replace(/\D/g, '')) || 0,
+            order_date: new Date().toISOString()
+        }
     };
-    
+
     const submitBtn = document.getElementById('submitBtn');
     const originalText = submitBtn.textContent;
     submitBtn.textContent = 'Đang xử lý...';
     submitBtn.disabled = true;
-    
-    // Hide main form and show order progress display
+
     document.getElementById('mainForm').classList.add('hidden');
     document.getElementById('orderProgressDisplay').classList.remove('hidden');
-    
-    // Simulate order processing steps
+
     showOrderProgress('Đang gửi đơn hàng của bạn...');
     setTimeout(() => showOrderProgress('Đã nhận đơn hàng, đang xác nhận thông tin...'), 2000);
     setTimeout(() => showOrderProgress('Đang gửi email xác nhận đến bạn...'), 4000);
@@ -564,24 +568,22 @@ function submitOrder() {
         body: JSON.stringify(orderData)
     })
     .then(response => {
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
+        if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
         return response.json();
     })
     .then(data => {
         setTimeout(() => {
             showOrderProgress('Đơn hàng đã được xử lý thành công! Chúng tôi sẽ liên hệ sớm nhất.');
-            document.getElementById('successMessage').classList.add('active'); // Show success message
-            document.getElementById('orderProgressDisplay').classList.add('hidden'); // Hide progress
-        }, 8000); // Show success after all simulated steps
+            document.getElementById('successMessage').classList.add('active');
+            document.getElementById('orderProgressDisplay').classList.add('hidden');
+        }, 8000);
     })
     .catch(error => {
         console.error('Order submission error:', error);
         setTimeout(() => {
             showError('Lỗi khi đặt hàng. Vui lòng thử lại.');
-            document.getElementById('orderProgressDisplay').classList.add('hidden'); // Hide progress
-            document.getElementById('mainForm').classList.remove('hidden'); // Show main form again
+            document.getElementById('orderProgressDisplay').classList.add('hidden');
+            document.getElementById('mainForm').classList.remove('hidden');
             submitBtn.textContent = originalText;
             submitBtn.disabled = false;
         }, 8000);
