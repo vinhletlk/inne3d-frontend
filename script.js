@@ -8,6 +8,10 @@ let orderData = {}; // Stores all compiled order details before submission
 // Base URL for the backend API
 const API_BASE_URL = 'https://inne-production.up.railway.app';
 
+// File size limits
+const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500MB
+const LARGE_FILE_THRESHOLD = 100 * 1024 * 1024; // 100MB
+
 // Image URLs and descriptions for different technologies
 const TECH_IMAGES = {
     FDM: {
@@ -124,10 +128,22 @@ function handleDrop(event) {
  * @param {File} file - The file object to be added.
  */
 function addFileToQueue(file) {
+    // Check file size before adding to queue
+    if (file.size > MAX_FILE_SIZE) {
+        showError(`File "${file.name}" quá lớn (${formatFileSize(file.size)}). Kích thước tối đa là ${formatFileSize(MAX_FILE_SIZE)}.`);
+        return;
+    }
+    
+    // Show warning for large files
+    if (file.size > LARGE_FILE_THRESHOLD) {
+        showWarning(`File "${file.name}" khá lớn (${formatFileSize(file.size)}). Quá trình xử lý có thể mất nhiều thời gian và file sẽ được tối ưu hóa tự động.`);
+    }
+    
     const newFileEntry = {
         id: Date.now() + Math.random(), // Unique ID for the file
         file: file,
         name: file.name,
+        size: file.size,
         mass_grams: null,
         volume_cm3: null,
         processing: true // Flag to indicate processing state
@@ -154,6 +170,10 @@ function uploadFile(fileEntry) {
     })
     .then(response => {
         if (!response.ok) {
+            // Handle specific error codes
+            if (response.status === 413) {
+                throw new Error('FILE_TOO_LARGE');
+            }
             throw new Error(`HTTP error! status: ${response.status}`);
         }
         return response.json();
@@ -196,7 +216,14 @@ function uploadFile(fileEntry) {
         }
         updateFileListUI();
         calculatePrice();
-        showError(`Lỗi khi tải file "${fileEntry.name}" lên. Vui lòng thử lại.`);
+        
+        // Handle specific error types
+        if (error.message === 'FILE_TOO_LARGE') {
+            showError(`File "${fileEntry.name}" quá lớn (${formatFileSize(fileEntry.size)}). Kích thước tối đa là ${formatFileSize(MAX_FILE_SIZE)}. Vui lòng thử nén file hoặc chia nhỏ file.`);
+        } else {
+            showError(`Lỗi khi tải file "${fileEntry.name}" lên. Vui lòng thử lại.`);
+        }
+        
         if (uploadedFiles.every(f => !f.processing)) {
             document.getElementById('uploadLoading').classList.remove('active');
         }
@@ -254,7 +281,7 @@ function updateFileListUI() {
                 </svg>
                 <div class="flex-grow">
                     <span class="text-gray-900 font-medium text-sm truncate">${fileEntry.name}</span>
-                    <span class="ml-auto text-gray-600 text-xs">${massText}</span>
+                    <span class="ml-auto text-gray-600 text-xs">${massText} • ${formatFileSize(fileEntry.size)}</span>
                     ${optimizationInfo}
                 </div>
             </div>
@@ -1006,6 +1033,35 @@ function showError(message) {
             errorDiv.addEventListener('animationend', () => errorDiv.remove());
         }
     }, 4000);
+}
+
+/**
+ * Displays a temporary warning notification.
+ * @param {string} message - The warning message to display.
+ */
+function showWarning(message) {
+    const existingWarning = document.querySelector('.warning-notification');
+    if (existingWarning) existingWarning.remove();
+
+    const warningDiv = document.createElement('div');
+    warningDiv.className = 'warning-notification fixed top-4 right-4 bg-yellow-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-fade-in-down';
+    warningDiv.innerHTML = `
+        <div class="flex items-center">
+            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
+            </svg>
+            <span>${message}</span>
+        </div>
+    `;
+    
+    document.body.appendChild(warningDiv);
+    
+    setTimeout(() => {
+        if (warningDiv.parentNode) {
+            warningDiv.classList.add('animate-fade-out-up');
+            warningDiv.addEventListener('animationend', () => warningDiv.remove());
+        }
+    }, 8000);
 }
 
 // --- Utility Functions ---
