@@ -10,7 +10,8 @@ const API_BASE_URL = 'https://inne-production.up.railway.app';
 // Image URLs for different technologies
 const TECH_IMAGES = {
     FDM: {
-        src: 'https://placehold.co/300x200/e0f2f7/000000?text=FDM+Machine',
+        src: 'https://upload.wikimedia.org/wikipedia/commons/3/3a/FDM_3D_Printer.jpg
+',
         description: 'Công nghệ FDM (Fused Deposition Modeling) sử dụng sợi nhựa nhiệt dẻo để tạo ra các lớp vật thể. Phù hợp cho các mô hình lớn, chức năng và chi phí thấp.'
     },
     Resin: {
