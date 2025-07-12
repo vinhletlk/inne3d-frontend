@@ -8,6 +8,10 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Three.js Library for 3D rendering -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- STLLoader for loading STL files -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/STLLoader.js"></script>
     <script>
         tailwind.config = {
             theme: {
@@ -117,6 +121,18 @@
             opacity: 1;
             transform: translateY(0);
         }
+        /* Style for the STL viewer canvas */
+        #stlViewer {
+            width: 100%;
+            height: 250px; /* Fixed height for the viewer */
+            background-color: #f0f0f0;
+            border-radius: 0.5rem;
+            margin-top: 1rem;
+            display: none; /* Hidden by default */
+        }
+        #stlViewer.active {
+            display: block;
+        }
     </style>
 </head>
 <body class="bg-gray-100 min-h-screen text-gray-800">
@@ -127,9 +143,11 @@
                 <!-- Logo and Site Title with Slogan -->
                 <a href="/" class="flex items-center">
                     <div class="w-8 h-8 md:w-10 md:h-10 bg-primary rounded-md flex items-center justify-center mr-2">
-                        <!-- 3D Printer Icon (can be replaced with a custom logo image) -->
-                        <svg class="w-5 h-5 md:w-6 md:h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+                        <!-- Custom Logo SVG - A stylized 'I' for Inne 3D -->
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M12 2L12 22M12 2C10.8954 2 10 2.89543 10 4L10 20C10 21.1046 10.8954 22 12 22M12 22C13.1046 22 14 21.1046 14 20L14 4C14 2.89543 13.1046 2 12 2Z" fill="white" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M7 7H17" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M7 17H17" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                         </svg>
                     </div>
                     <div>
@@ -168,6 +186,19 @@
                     </div>
                 </div>
 
+                <!-- Order Progress Display -->
+                <div id="orderProgressDisplay" class="hidden bg-white rounded-lg shadow-md p-6 sm:p-8 mb-8">
+                    <h2 class="text-2xl font-bold text-gray-900 mb-6 border-b pb-4">Tiến độ đơn hàng</h2>
+                    <div id="progressSteps" class="space-y-4">
+                        <!-- Progress steps will be inserted here by JavaScript -->
+                    </div>
+                    <div class="mt-8 text-center">
+                        <button onclick="resetForm()" class="bg-primary text-white px-6 py-3 rounded-full text-base font-medium hover:bg-primary-dark transition-colors">
+                            Tạo đơn hàng mới
+                        </button>
+                    </div>
+                </div>
+
                 <!-- Main Order Form -->
                 <div id="mainForm" class="bg-white rounded-lg shadow-md p-6 sm:p-8">
                     <h2 class="text-2xl font-bold text-gray-900 mb-6 border-b pb-4">Đặt hàng in 3D</h2>
@@ -176,14 +207,14 @@
                     <div class="mb-8">
                         <h3 class="text-lg font-semibold text-gray-900 mb-4">Bước 1: Tải lên file 3D</h3>
                         <div class="file-upload-area rounded-lg p-8 text-center bg-gray-50 cursor-pointer" id="fileUploadArea">
-                            <input type="file" id="fileInput" accept=".stl,.obj" class="hidden">
+                            <input type="file" id="fileInput" accept=".stl,.obj" class="hidden" multiple>
                             <div class="space-y-3">
                                 <!-- Upload Icon -->
                                 <svg class="mx-auto h-12 w-12 text-gray-400" stroke="currentColor" fill="none" viewBox="0 0 48 48">
                                     <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
                                 </svg>
                                 <div>
-                                    <p class="text-sm font-medium text-gray-900">Chọn file STL hoặc OBJ</p>
+                                    <p class="text-sm font-medium text-gray-900">Chọn nhiều file STL hoặc OBJ</p>
                                     <p class="text-xs text-gray-500">hoặc kéo thả file vào đây</p>
                                 </div>
                                 <button type="button" onclick="document.getElementById('fileInput').click()" class="bg-primary text-white px-6 py-2 rounded-full text-sm font-medium hover:bg-primary-dark transition-colors">
@@ -192,22 +223,14 @@
                             </div>
                         </div>
                         
-                        <!-- File Info Display -->
-                        <div id="fileInfo" class="hidden mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                            <div class="flex items-center justify-between">
-                                <div class="flex items-center">
-                                    <!-- Document Icon -->
-                                    <svg class="h-5 w-5 text-gray-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
-                                    </svg>
-                                    <span id="fileName" class="text-gray-900 font-medium text-sm truncate"></span>
-                                </div>
-                                <button type="button" onclick="removeFile()" class="text-red-500 hover:text-red-700">
-                                    <!-- Close Icon -->
-                                    <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
-                                    </svg>
-                                </button>
+                        <!-- File List Display -->
+                        <div id="fileListContainer" class="mt-4 hidden">
+                            <h4 class="font-semibold text-gray-900 mb-2 text-sm">Các file đã tải lên:</h4>
+                            <ul id="uploadedFilesList" class="space-y-2">
+                                <!-- Uploaded files will be listed here by JavaScript -->
+                            </ul>
+                            <div id="totalMassDisplay" class="mt-4 p-3 bg-blue-50 rounded-lg text-sm font-medium text-blue-900 hidden">
+                                Tổng khối lượng: <span id="totalMassAmount">0 grams</span>
                             </div>
                         </div>
 
@@ -223,20 +246,8 @@
                             </div>
                         </div>
 
-                        <!-- File Results Display -->
-                        <div id="fileResults" class="hidden mt-4 p-4 bg-green-50 rounded-lg">
-                            <h4 class="font-semibold text-green-900 mb-2 text-sm">Thông tin file:</h4>
-                            <div class="grid grid-cols-2 gap-4 text-xs sm:text-sm">
-                                <div>
-                                    <span class="text-green-700">Khối lượng:</span>
-                                    <span id="fileMass" class="font-medium text-green-900 block"></span>
-                                </div>
-                                <div>
-                                    <span class="text-green-700">Thể tích:</span>
-                                    <span id="fileVolume" class="font-medium text-green-900 block"></span>
-                                </div>
-                            </div>
-                        </div>
+                        <!-- STL Viewer Canvas -->
+                        <canvas id="stlViewer" class="w-full bg-gray-200 rounded-md hidden"></canvas>
                     </div>
 
                     <!-- Step 2: Select Technology Section -->
@@ -247,7 +258,7 @@
                             <div class="tech-card border border-gray-300 rounded-lg p-4 bg-white cursor-pointer transition-colors hover:bg-gray-50" onclick="selectTechnology(this, 'FDM')">
                                 <div class="flex items-center">
                                     <div class="flex-shrink-0 w-8 h-8 mr-3 rounded-full bg-blue-100 flex items-center justify-center">
-                                        <!-- FDM Icon (e.g., a printer nozzle) -->
+                                        <!-- FDM Icon -->
                                         <svg class="h-4 w-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.002 2.002a2.003 2.003 0 010 2.828L15.284 12m-6.41-6.41l-2.83 2.83M12 18v.01M18 18v.01M22 18v.01"></path></svg>
                                     </div>
                                     <div>
@@ -260,7 +271,7 @@
                             <div class="tech-card border border-gray-300 rounded-lg p-4 bg-white cursor-pointer transition-colors hover:bg-gray-50" onclick="selectTechnology(this, 'Resin')">
                                 <div class="flex items-center">
                                     <div class="flex-shrink-0 w-8 h-8 mr-3 rounded-full bg-blue-100 flex items-center justify-center">
-                                        <!-- Resin Icon (e.g., a drop or liquid) -->
+                                        <!-- Resin Icon -->
                                         <svg class="h-4 w-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-2.828-2.828l-3.142 3.142a2 2 0 000 2.828l3.142 3.142a2 2 0 002.828 0l3.142-3.142a2 2 0 000-2.828l-3.142-3.142zM15 11l2.5-2.5m-11-2.5l-2.5 2.5m1.5 5.5l2.5-2.5"></path></svg>
                                     </div>
                                 </div>
@@ -275,6 +286,22 @@
                         <div id="techImageDisplay" class="tech-image-display hidden mt-6 p-4 bg-white rounded-lg border border-gray-200 text-center">
                             <img id="techImage" src="" alt="Máy in 3D" class="mx-auto mb-3 rounded-md shadow-sm max-w-full h-auto">
                             <p id="techDescription" class="text-sm text-gray-700"></p>
+                        </div>
+                    </div>
+
+                    <!-- New: Step 2.1: Select Color -->
+                    <div id="colorSelectionSection" class="mb-8 hidden">
+                        <h3 class="text-lg font-semibold text-gray-900 mb-4">Bước 2.1: Chọn màu in</h3>
+                        <div id="colorOptions" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                            <!-- Color options will be dynamically loaded here -->
+                        </div>
+                    </div>
+
+                    <!-- New: Step 2.2: Select Resolution -->
+                    <div id="resolutionSelectionSection" class="mb-8 hidden">
+                        <h3 class="text-lg font-semibold text-gray-900 mb-4">Bước 2.2: Chọn độ phân giải</h3>
+                        <div id="resolutionOptions" class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                            <!-- Resolution options will be dynamically loaded here -->
                         </div>
                     </div>
 
@@ -308,16 +335,24 @@
                     <h3 class="text-lg font-bold text-gray-900 mb-4">Tóm tắt đơn hàng</h3>
                     <div class="space-y-4 text-sm">
                         <div class="flex justify-between items-center text-gray-600">
-                            <span>File đã tải lên</span>
-                            <span id="summaryFileName" class="font-medium text-gray-900">Chưa có</span>
+                            <span>Số lượng file</span>
+                            <span id="summaryFileCount" class="font-medium text-gray-900">0</span>
                         </div>
                         <div class="flex justify-between items-center text-gray-600">
                             <span>Công nghệ in</span>
                             <span id="summaryTechnology" class="font-medium text-gray-900">Chưa chọn</span>
                         </div>
                         <div class="flex justify-between items-center text-gray-600">
-                            <span>Khối lượng</span>
-                            <span id="summaryMass" class="font-medium text-gray-900">---</span>
+                            <span>Màu sắc</span>
+                            <span id="summaryColor" class="font-medium text-gray-900">Chưa chọn</span>
+                        </div>
+                        <div class="flex justify-between items-center text-gray-600">
+                            <span>Độ phân giải</span>
+                            <span id="summaryResolution" class="font-medium text-gray-900">Chưa chọn</span>
+                        </div>
+                        <div class="flex justify-between items-center text-gray-600">
+                            <span>Tổng khối lượng</span>
+                            <span id="summaryTotalMass" class="font-medium text-gray-900">---</span>
                         </div>
                     </div>
 
