@@ -1,13 +1,14 @@
 // Global variables to store application state
-let selectedFile = null; // Stores the currently selected file object
-let fileData = null;     // Stores processed data (mass, volume) received from the API for the selected file
+let uploadedFiles = []; // Stores an array of file objects with their processed data
 let selectedTechnology = null; // Stores the chosen printing technology ('FDM' or 'Resin')
-let orderData = {};      // Stores all compiled order details before submission
+let selectedColor = null; // Stores the selected printing color
+let selectedResolution = null; // Stores the selected printing resolution
+let orderData = {}; // Stores all compiled order details before submission
 
 // Base URL for the backend API
 const API_BASE_URL = 'https://inne-production.up.railway.app';
 
-// Image URLs for different technologies
+// Image URLs and descriptions for different technologies
 const TECH_IMAGES = {
     FDM: {
         src: 'https://placehold.co/300x200/e0f2f7/000000?text=FDM+Machine',
@@ -19,10 +20,40 @@ const TECH_IMAGES = {
     }
 };
 
+// Available colors for each technology
+const COLORS = {
+    FDM: [
+        { name: 'Đen', hex: '#000000' },
+        { name: 'Trắng', hex: '#FFFFFF' },
+        { name: 'Xám', hex: '#808080' },
+        { name: 'Đỏ', hex: '#FF0000' },
+        { name: 'Xanh dương', hex: '#0000FF' },
+        { name: 'Xanh lá', hex: '#008000' }
+    ],
+    Resin: [
+        { name: 'Trong suốt', hex: '#E0FFFF' },
+        { name: 'Trắng', hex: '#FFFFFF' },
+        { name: 'Xám', hex: '#808080' },
+        { name: 'Đen', hex: '#000000' }
+    ]
+};
+
+// Available resolutions (layer heights)
+const RESOLUTIONS = [
+    { value: 100, label: '100 micron (Mịn)' },
+    { value: 200, label: '200 micron (Trung bình)' },
+    { value: 300, label: '300 micron (Thô)' }
+];
+
+// Three.js variables for STL viewer
+let scene, camera, renderer, stlLoader;
+let stlMesh = null; // To store the current STL mesh
+
 // Initialize the application when the DOM is fully loaded
 document.addEventListener('DOMContentLoaded', function() {
-    initializeFileUpload();    // Set up file upload event listeners
-    initializeFormValidation(); // Set up form input validation
+    initializeFileUpload();
+    initializeFormValidation();
+    initializeSTLViewer(); // Initialize the 3D viewer
 });
 
 // --- File Upload Functions ---
@@ -34,10 +65,7 @@ function initializeFileUpload() {
     const fileInput = document.getElementById('fileInput');
     const fileUploadArea = document.getElementById('fileUploadArea');
 
-    // Listen for changes on the hidden file input (when a file is selected via click)
     fileInput.addEventListener('change', handleFileSelect);
-
-    // Add drag and drop event listeners to the file upload area
     fileUploadArea.addEventListener('dragover', handleDragOver);
     fileUploadArea.addEventListener('dragleave', handleDragLeave);
     fileUploadArea.addEventListener('drop', handleDrop);
@@ -48,10 +76,8 @@ function initializeFileUpload() {
  * @param {Event} event - The change event from the file input.
  */
 function handleFileSelect(event) {
-    const file = event.target.files[0]; // Get the first selected file
-    if (file) {
-        processFile(file); // Process the file if one is selected
-    }
+    const files = Array.from(event.target.files);
+    files.forEach(file => addFileToQueue(file));
 }
 
 /**
@@ -60,8 +86,8 @@ function handleFileSelect(event) {
  * @param {Event} event - The dragover event.
  */
 function handleDragOver(event) {
-    event.preventDefault(); // Necessary to allow a drop
-    event.currentTarget.classList.add('dragover'); // Add visual feedback
+    event.preventDefault();
+    event.currentTarget.classList.add('dragover');
 }
 
 /**
@@ -71,7 +97,7 @@ function handleDragOver(event) {
  */
 function handleDragLeave(event) {
     event.preventDefault();
-    event.currentTarget.classList.remove('dragover'); // Remove visual feedback
+    event.currentTarget.classList.remove('dragover');
 }
 
 /**
@@ -81,98 +107,161 @@ function handleDragLeave(event) {
  */
 function handleDrop(event) {
     event.preventDefault();
-    event.currentTarget.classList.remove('dragover'); // Remove visual feedback
-
-    const files = event.dataTransfer.files; // Get files from the drop event
-    if (files.length > 0) {
-        const file = files[0];
-        // Check if the file extension is .stl or .obj (case-insensitive)
+    event.currentTarget.classList.remove('dragover');
+    
+    const files = Array.from(event.dataTransfer.files);
+    files.forEach(file => {
         if (file.name.toLowerCase().endsWith('.stl') || file.name.toLowerCase().endsWith('.obj')) {
-            processFile(file); // Process the valid file
+            addFileToQueue(file);
         } else {
-            showError('Vui lòng chọn file STL hoặc OBJ'); // Show error for invalid file type
+            showError(`File "${file.name}" không phải là định dạng STL hoặc OBJ.`);
         }
-    }
-}
-
-/**
- * Processes the selected file: updates UI, shows loading, and initiates upload.
- * @param {File} file - The file object to be processed.
- */
-function processFile(file) {
-    selectedFile = file; // Store the selected file globally
-
-    // Update UI to show file name and summary
-    document.getElementById('fileName').textContent = file.name;
-    document.getElementById('summaryFileName').textContent = file.name;
-    document.getElementById('fileInfo').classList.remove('hidden'); // Show file info block
-
-    // Show loading indicator and hide previous results
-    document.getElementById('uploadLoading').classList.add('active');
-    document.getElementById('fileResults').classList.add('hidden');
-
-    uploadFile(file); // Start the file upload process
-}
-
-/**
- * Uploads the file to the backend API for processing (mass/volume calculation).
- * @param {File} file - The file to upload.
- */
-function uploadFile(file) {
-    const formData = new FormData();
-    formData.append('file', file); // Append the file to form data
-
-    fetch(`${API_BASE_URL}/upload`, {
-        method: 'POST',
-        body: formData // Send the file as multipart/form-data
-    })
-    .then(response => {
-        // Check if the response was successful (status code 2xx)
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        return response.json(); // Parse the JSON response
-    })
-    .then(data => {
-        fileData = data; // Store the processed file data (mass, volume)
-        displayFileResults(data); // Display the results on the UI
-        document.getElementById('uploadLoading').classList.remove('active'); // Hide loading
-        checkFormCompletion(); // Re-check form completion to enable/disable submit button
-    })
-    .catch(error => {
-        console.error('Upload error:', error);
-        document.getElementById('uploadLoading').classList.remove('active'); // Hide loading on error
-        showError('Lỗi khi tải file lên. Vui lòng thử lại.'); // Show user-friendly error message
     });
 }
 
 /**
- * Displays the processed file results (mass and volume) on the UI.
- * @param {Object} data - Object containing mass_grams and volume_cm3.
+ * Adds a file to the processing queue and initiates its upload.
+ * @param {File} file - The file object to be added.
  */
-function displayFileResults(data) {
-    // Format and display mass and volume, rounding to 2 decimal places
-    document.getElementById('fileMass').textContent = `${data.mass_grams.toFixed(2)} grams`;
-    document.getElementById('fileVolume').textContent = `${data.volume_cm3.toFixed(2)} cm³`;
-    document.getElementById('summaryMass').textContent = `${data.mass_grams.toFixed(2)} grams`; // Update summary panel
-    document.getElementById('fileResults').classList.remove('hidden'); // Show the results block
+function addFileToQueue(file) {
+    const newFileEntry = {
+        id: Date.now() + Math.random(), // Unique ID for the file
+        file: file,
+        name: file.name,
+        mass_grams: null,
+        volume_cm3: null,
+        processing: true // Flag to indicate processing state
+    };
+    uploadedFiles.push(newFileEntry);
+    updateFileListUI(); // Update UI immediately to show file is added
+    document.getElementById('uploadLoading').classList.add('active'); // Show global loading
+
+    uploadFile(newFileEntry); // Upload the individual file
 }
 
 /**
- * Removes the currently selected file and resets related UI elements.
+ * Uploads a single file to the backend API for processing (mass/volume calculation).
+ * Updates the specific file entry in `uploadedFiles` array upon success.
+ * @param {Object} fileEntry - The file entry object from `uploadedFiles` array.
  */
-function removeFile() {
-    selectedFile = null; // Clear selected file
-    fileData = null;     // Clear file data
-    document.getElementById('fileInput').value = ''; // Clear file input value
-    document.getElementById('fileInfo').classList.add('hidden'); // Hide file info block
-    document.getElementById('fileResults').classList.add('hidden'); // Hide file results block
-    document.getElementById('uploadLoading').classList.remove('active'); // Hide loading
-    document.getElementById('summaryFileName').textContent = 'Chưa có'; // Reset summary panel
-    checkFormCompletion(); // Re-check form completion
+function uploadFile(fileEntry) {
+    const formData = new FormData();
+    formData.append('file', fileEntry.file);
+
+    fetch(`${API_BASE_URL}/upload`, {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(data => {
+        // Find the file entry and update its data
+        const index = uploadedFiles.findIndex(f => f.id === fileEntry.id);
+        if (index !== -1) {
+            uploadedFiles[index].mass_grams = data.mass_grams;
+            uploadedFiles[index].volume_cm3 = data.volume_cm3;
+            uploadedFiles[index].processing = false; // Mark as processed
+        }
+        updateFileListUI(); // Update UI to show results for this file
+        calculatePrice(); // Recalculate total price
+        checkFormCompletion(); // Re-check form completion
+
+        // Hide global loading if all files are processed
+        if (uploadedFiles.every(f => !f.processing)) {
+            document.getElementById('uploadLoading').classList.remove('active');
+        }
+
+        // Render STL preview for the first uploaded STL file
+        if (fileEntry.name.toLowerCase().endsWith('.stl')) {
+            renderSTLPreview(fileEntry.file);
+        }
+    })
+    .catch(error => {
+        console.error('Upload error for file', fileEntry.name, ':', error);
+        const index = uploadedFiles.findIndex(f => f.id === fileEntry.id);
+        if (index !== -1) {
+            uploadedFiles.splice(index, 1); // Remove file on error
+        }
+        updateFileListUI();
+        calculatePrice();
+        showError(`Lỗi khi tải file "${fileEntry.name}" lên. Vui lòng thử lại.`);
+        if (uploadedFiles.every(f => !f.processing)) {
+            document.getElementById('uploadLoading').classList.remove('active');
+        }
+    });
 }
 
-// --- Technology Selection Functions ---
+/**
+ * Updates the displayed list of uploaded files and total mass.
+ */
+function updateFileListUI() {
+    const uploadedFilesList = document.getElementById('uploadedFilesList');
+    uploadedFilesList.innerHTML = ''; // Clear existing list
+
+    let totalMass = 0;
+
+    if (uploadedFiles.length === 0) {
+        document.getElementById('fileListContainer').classList.add('hidden');
+        document.getElementById('summaryFileCount').textContent = '0';
+        document.getElementById('summaryTotalMass').textContent = '---';
+        document.getElementById('totalMassDisplay').classList.add('hidden');
+        return;
+    }
+
+    uploadedFiles.forEach((fileEntry, index) => {
+        const listItem = document.createElement('li');
+        listItem.className = 'flex items-center justify-between p-3 bg-gray-50 rounded-md border border-gray-200';
+        
+        let massText = fileEntry.processing ? 'Đang xử lý...' : `${fileEntry.mass_grams.toFixed(2)} grams`;
+        if (fileEntry.mass_grams) {
+            totalMass += fileEntry.mass_grams;
+        }
+
+        listItem.innerHTML = `
+            <div class="flex items-center flex-grow">
+                <svg class="h-5 w-5 text-gray-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                </svg>
+                <span class="text-gray-900 font-medium text-sm truncate">${fileEntry.name}</span>
+                <span class="ml-auto text-gray-600 text-xs">${massText}</span>
+            </div>
+            <button type="button" onclick="removeFile(${index})" class="ml-3 text-red-500 hover:text-red-700">
+                <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+            </button>
+        `;
+        uploadedFilesList.appendChild(listItem);
+    });
+
+    document.getElementById('fileListContainer').classList.remove('hidden');
+    document.getElementById('summaryFileCount').textContent = uploadedFiles.length;
+    document.getElementById('totalMassAmount').textContent = `${totalMass.toFixed(2)} grams`;
+    document.getElementById('summaryTotalMass').textContent = `${totalMass.toFixed(2)} grams`;
+    document.getElementById('totalMassDisplay').classList.remove('hidden');
+}
+
+/**
+ * Removes a file from the uploaded list by its index.
+ * @param {number} index - The index of the file to remove.
+ */
+function removeFile(index) {
+    if (index > -1 && index < uploadedFiles.length) {
+        uploadedFiles.splice(index, 1); // Remove the file from the array
+        updateFileListUI(); // Update the UI list
+        calculatePrice(); // Recalculate price
+        checkFormCompletion(); // Re-check form completion
+        if (uploadedFiles.length === 0) {
+            clearSTLViewer(); // Clear viewer if no files left
+        }
+    }
+}
+
+// --- Technology Selection, Color, and Resolution Functions ---
 
 /**
  * Handles the selection of a printing technology.
@@ -194,7 +283,6 @@ function selectTechnology(element, technology) {
     element.classList.add('border-primary');
     
     selectedTechnology = technology; // Store the selected technology
-    // Update summary panel with the chosen technology's display name
     document.getElementById('summaryTechnology').textContent = technology === 'FDM' ? 'FDM (Nhựa)' : 'Resin (Nhựa lỏng)';
     
     // Display the corresponding technology image and description
@@ -215,8 +303,18 @@ function selectTechnology(element, technology) {
         techImageDisplay.classList.add('hidden');
     }
 
+    // Update color and resolution options based on selected technology
+    renderColorOptions(technology);
+    renderResolutionOptions(); // Resolution options are static for now, but can be dynamic later
+    
+    // Reset selected color and resolution if technology changes
+    selectedColor = null;
+    selectedResolution = null;
+    document.getElementById('summaryColor').textContent = 'Chưa chọn';
+    document.getElementById('summaryResolution').textContent = 'Chưa chọn';
+
     // If file data is available, calculate the price immediately
-    if (fileData) {
+    if (uploadedFiles.length > 0) {
         calculatePrice();
     }
     
@@ -224,15 +322,105 @@ function selectTechnology(element, technology) {
 }
 
 /**
- * Calculates the estimated price based on file data and selected technology
- * by making an API call.
+ * Renders color options based on the selected technology.
+ * @param {string} technology - The selected technology ('FDM' or 'Resin').
+ */
+function renderColorOptions(technology) {
+    const colorOptionsContainer = document.getElementById('colorOptions');
+    colorOptionsContainer.innerHTML = ''; // Clear existing options
+
+    const availableColors = COLORS[technology] || [];
+    if (availableColors.length > 0) {
+        document.getElementById('colorSelectionSection').classList.remove('hidden');
+        availableColors.forEach(color => {
+            const colorDiv = document.createElement('div');
+            colorDiv.className = 'flex items-center p-2 border border-gray-300 rounded-md cursor-pointer hover:bg-gray-50 transition-colors';
+            colorDiv.onclick = () => selectColor(color.name);
+            
+            colorDiv.innerHTML = `
+                <div class="w-5 h-5 rounded-full mr-2 border border-gray-300" style="background-color: ${color.hex};"></div>
+                <span class="text-sm font-medium text-gray-800">${color.name}</span>
+            `;
+            colorOptionsContainer.appendChild(colorDiv);
+        });
+    } else {
+        document.getElementById('colorSelectionSection').classList.add('hidden');
+    }
+}
+
+/**
+ * Handles the selection of a printing color.
+ * @param {string} colorName - The name of the selected color.
+ */
+function selectColor(colorName) {
+    selectedColor = colorName;
+    document.getElementById('summaryColor').textContent = colorName;
+
+    // Highlight selected color
+    document.querySelectorAll('#colorOptions > div').forEach(div => {
+        div.classList.remove('border-primary', 'bg-blue-50');
+        div.classList.add('border-gray-300');
+    });
+    event.currentTarget.classList.remove('border-gray-300');
+    event.currentTarget.classList.add('border-primary', 'bg-blue-50');
+
+    calculatePrice();
+    checkFormCompletion();
+}
+
+/**
+ * Renders resolution options.
+ */
+function renderResolutionOptions() {
+    const resolutionOptionsContainer = document.getElementById('resolutionOptions');
+    resolutionOptionsContainer.innerHTML = ''; // Clear existing options
+
+    document.getElementById('resolutionSelectionSection').classList.remove('hidden');
+    RESOLUTIONS.forEach(resolution => {
+        const resolutionDiv = document.createElement('div');
+        resolutionDiv.className = 'flex items-center p-2 border border-gray-300 rounded-md cursor-pointer hover:bg-gray-50 transition-colors';
+        resolutionDiv.onclick = () => selectResolution(resolution.value);
+
+        resolutionDiv.innerHTML = `
+            <span class="text-sm font-medium text-gray-800">${resolution.label}</span>
+        `;
+        resolutionOptionsContainer.appendChild(resolutionDiv);
+    });
+}
+
+/**
+ * Handles the selection of a printing resolution.
+ * @param {number} resolutionValue - The value of the selected resolution (e.g., 100, 200, 300).
+ */
+function selectResolution(resolutionValue) {
+    selectedResolution = resolutionValue;
+    document.getElementById('summaryResolution').textContent = `${resolutionValue} micron`;
+
+    // Highlight selected resolution
+    document.querySelectorAll('#resolutionOptions > div').forEach(div => {
+        div.classList.remove('border-primary', 'bg-blue-50');
+        div.classList.add('border-gray-300');
+    });
+    event.currentTarget.classList.remove('border-gray-300');
+    event.currentTarget.classList.add('border-primary', 'bg-blue-50');
+
+    calculatePrice();
+    checkFormCompletion();
+}
+
+/**
+ * Calculates the estimated price based on total mass and selected technology.
  */
 function calculatePrice() {
-    // Only proceed if both file data and technology are selected
-    if (!fileData || !selectedTechnology) return;
+    const totalMass = uploadedFiles.reduce((sum, file) => sum + (file.mass_grams || 0), 0);
+
+    if (totalMass === 0 || !selectedTechnology) {
+        document.getElementById('priceDisplay').classList.add('hidden');
+        return;
+    }
     
     const requestData = {
-        mass_grams: fileData.mass_grams,
+        mass_grams: totalMass,
         tech: selectedTechnology,
         material: selectedTechnology === 'FDM' ? 'PLA' : 'Resin' // Determine material based on technology
     };
@@ -240,9 +428,9 @@ function calculatePrice() {
     fetch(`${API_BASE_URL}/price`, {
         method: 'POST',
         headers: {
-            'Content-Type': 'application/json', // Specify content type as JSON
+            'Content-Type': 'application/json',
         },
-        body: JSON.stringify(requestData) // Send data as JSON string
+        body: JSON.stringify(requestData)
     })
     .then(response => {
         if (!response.ok) {
@@ -251,11 +439,12 @@ function calculatePrice() {
         return response.json();
     })
     .then(data => {
-        displayPrice(data.price); // Display the calculated price
+        displayPrice(data.price);
     })
     .catch(error => {
         console.error('Price calculation error:', error);
-        showError('Lỗi khi tính giá. Vui lòng thử lại.'); // Show error message
+        showError('Lỗi khi tính giá. Vui lòng thử lại.');
+        document.getElementById('priceDisplay').classList.add('hidden');
     });
 }
 
@@ -264,9 +453,8 @@ function calculatePrice() {
  * @param {number} price - The calculated price amount.
  */
 function displayPrice(price) {
-    // Format price to Vietnamese currency and display
     document.getElementById('priceAmount').textContent = `${price.toLocaleString('vi-VN')} VNĐ`;
-    document.getElementById('priceDisplay').classList.remove('hidden'); // Show the price display block
+    document.getElementById('priceDisplay').classList.remove('hidden');
 }
 
 // --- Form Validation and Submission ---
@@ -279,9 +467,7 @@ function initializeFormValidation() {
     
     inputs.forEach(inputId => {
         const input = document.getElementById(inputId);
-        // Listen for input changes to continuously check form completion
         input.addEventListener('input', checkFormCompletion);
-        // Listen for blur event to validate field when user leaves it
         input.addEventListener('blur', validateField);
     });
 }
@@ -293,15 +479,14 @@ function initializeFormValidation() {
  */
 function validateField(event) {
     const field = event.target;
-    const value = field.value.trim(); // Get trimmed value
-    const parent = field.closest('.form-input-group'); // Get the parent container for styling
+    const value = field.value.trim();
+    const parent = field.closest('.form-input-group');
 
-    // Check if the field is required and empty
     if (field.hasAttribute('required') && !value) {
-        parent.classList.add('border-red-500'); // Add red border for invalid state
+        parent.classList.add('border-red-500');
         return false;
     } else {
-        parent.classList.remove('border-red-500'); // Remove red border if valid
+        parent.classList.remove('border-red-500');
         return true;
     }
 }
@@ -310,26 +495,23 @@ function validateField(event) {
  * Checks if all required form fields are filled and enables/disables the submit button accordingly.
  */
 function checkFormCompletion() {
-    // Check if essential data is present
-    const hasFile = selectedFile !== null;
+    const hasFiles = uploadedFiles.length > 0 && uploadedFiles.every(f => !f.processing && f.mass_grams !== null);
     const hasTechnology = selectedTechnology !== null;
-    // Check if customer information fields are not empty
+    const hasColor = selectedColor !== null;
+    const hasResolution = selectedResolution !== null;
     const hasName = document.getElementById('customerName').value.trim() !== '';
     const hasPhone = document.getElementById('customerPhone').value.trim() !== '';
     const hasAddress = document.getElementById('customerAddress').value.trim() !== '';
     
-    // Determine if the entire form is complete
-    const isComplete = hasFile && hasTechnology && hasName && hasPhone && hasAddress;
+    const isComplete = hasFiles && hasTechnology && hasColor && hasResolution && hasName && hasPhone && hasAddress;
     
     const submitBtn = document.getElementById('submitBtn');
     if (isComplete) {
-        submitBtn.disabled = false; // Enable button
-        // Apply active button styling
+        submitBtn.disabled = false;
         submitBtn.classList.remove('bg-gray-300', 'cursor-not-allowed');
         submitBtn.classList.add('bg-accent', 'hover:bg-accent-dark', 'cursor-pointer');
     } else {
-        submitBtn.disabled = true; // Disable button
-        // Apply disabled button styling
+        submitBtn.disabled = true;
         submitBtn.classList.remove('bg-accent', 'hover:bg-accent-dark', 'cursor-pointer');
         submitBtn.classList.add('bg-gray-300', 'cursor-not-allowed');
     }
@@ -339,40 +521,47 @@ function checkFormCompletion() {
  * Submits the order to the backend API after validating the form.
  */
 function submitOrder() {
-    // Perform final validation before submission
     if (!validateForm()) {
-        return; // Stop if validation fails
+        return;
     }
     
-    // Compile all order data into an object
+    // Prepare order data
     orderData = {
-        filename: selectedFile.name,
-        mass_grams: fileData.mass_grams,
-        volume_cm3: fileData.volume_cm3,
-        
+        files: uploadedFiles.map(f => ({
+            name: f.name,
+            mass_grams: f.mass_grams,
+            volume_cm3: f.volume_cm3
+        })),
         technology: selectedTechnology,
-        material: selectedTechnology === 'FDM' ? 'PLA' : 'Resin',
-        
+        color: selectedColor,
+        resolution: selectedResolution,
         customer_name: document.getElementById('customerName').value.trim(),
         customer_phone: document.getElementById('customerPhone').value.trim(),
         customer_address: document.getElementById('customerAddress').value.trim(),
-        
-        order_date: new Date().toISOString() // Add a timestamp for the order
+        order_date: new Date().toISOString()
     };
     
-    // Show loading state on the submit button
     const submitBtn = document.getElementById('submitBtn');
-    const originalText = submitBtn.textContent; // Store original text to restore later
+    const originalText = submitBtn.textContent;
     submitBtn.textContent = 'Đang xử lý...';
-    submitBtn.disabled = true; // Disable button during submission
+    submitBtn.disabled = true;
     
-    // Send order data to the backend API
+    // Hide main form and show order progress display
+    document.getElementById('mainForm').classList.add('hidden');
+    document.getElementById('orderProgressDisplay').classList.remove('hidden');
+    
+    // Simulate order processing steps
+    showOrderProgress('Đang gửi đơn hàng của bạn...');
+    setTimeout(() => showOrderProgress('Đã nhận đơn hàng, đang xác nhận thông tin...'), 2000);
+    setTimeout(() => showOrderProgress('Đang gửi email xác nhận đến bạn...'), 4000);
+    setTimeout(() => showOrderProgress('Đang chuẩn bị sản xuất sản phẩm của bạn...'), 6000);
+
     fetch(`${API_BASE_URL}/order`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
-        body: JSON.stringify(orderData) // Send order data as JSON
+        body: JSON.stringify(orderData)
     })
     .then(response => {
         if (!response.ok) {
@@ -381,17 +570,43 @@ function submitOrder() {
         return response.json();
     })
     .then(data => {
-        showSuccess(); // Show success message on successful order
+        setTimeout(() => {
+            showOrderProgress('Đơn hàng đã được xử lý thành công! Chúng tôi sẽ liên hệ sớm nhất.');
+            document.getElementById('successMessage').classList.add('active'); // Show success message
+            document.getElementById('orderProgressDisplay').classList.add('hidden'); // Hide progress
+        }, 8000); // Show success after all simulated steps
     })
     .catch(error => {
         console.error('Order submission error:', error);
-        showError('Lỗi khi đặt hàng. Vui lòng thử lại.'); // Show error message to user
-        
-        // Reset button state on error
-        submitBtn.textContent = originalText;
-        submitBtn.disabled = false;
+        setTimeout(() => {
+            showError('Lỗi khi đặt hàng. Vui lòng thử lại.');
+            document.getElementById('orderProgressDisplay').classList.add('hidden'); // Hide progress
+            document.getElementById('mainForm').classList.remove('hidden'); // Show main form again
+            submitBtn.textContent = originalText;
+            submitBtn.disabled = false;
+        }, 8000);
     });
 }
+
+/**
+ * Updates the order progress display with new status messages.
+ * @param {string} message - The status message to display.
+ */
+function showOrderProgress(message) {
+    const progressSteps = document.getElementById('progressSteps');
+    const stepDiv = document.createElement('div');
+    stepDiv.className = 'flex items-center text-gray-700 animate-fade-in-up';
+    stepDiv.innerHTML = `
+        <svg class="h-5 w-5 text-primary mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+        </svg>
+        <span>${message}</span>
+    `;
+    progressSteps.appendChild(stepDiv);
+    // Scroll to bottom to show latest message
+    progressSteps.scrollTop = progressSteps.scrollHeight;
+}
+
 
 /**
  * Performs a comprehensive validation of all form fields.
@@ -406,24 +621,30 @@ function validateForm() {
     
     let isValid = true;
     
-    // Validate each customer information field
     fields.forEach(field => {
         const element = document.getElementById(field.id);
-        // Call validateField directly, passing a mock event target
         if (!validateField({ target: element })) {
             isValid = false;
         }
     });
     
-    // Validate file upload
-    if (!selectedFile) {
-        showError('Vui lòng chọn file 3D');
+    if (uploadedFiles.length === 0 || !uploadedFiles.every(f => !f.processing && f.mass_grams !== null)) {
+        showError('Vui lòng tải lên ít nhất một file 3D và đợi xử lý xong.');
         isValid = false;
     }
     
-    // Validate technology selection
     if (!selectedTechnology) {
         showError('Vui lòng chọn công nghệ in');
+        isValid = false;
+    }
+
+    if (!selectedColor) {
+        showError('Vui lòng chọn màu in');
+        isValid = false;
+    }
+
+    if (!selectedResolution) {
+        showError('Vui lòng chọn độ phân giải');
         isValid = false;
     }
     
@@ -436,8 +657,8 @@ function validateForm() {
  * Displays the success message and hides the main form.
  */
 function showSuccess() {
-    document.getElementById('successMessage').classList.add('active'); // Show success message
-    document.getElementById('mainForm').classList.add('hidden');       // Hide the main form
+    document.getElementById('successMessage').classList.add('active');
+    document.getElementById('mainForm').classList.add('hidden');
 }
 
 /**
@@ -445,22 +666,18 @@ function showSuccess() {
  * @param {string} message - The error message to display.
  */
 function showError(message) {
-    // Remove any existing error notifications to prevent stacking
     const existingError = document.querySelector('.error-notification');
     if (existingError) existingError.remove();
 
-    // Create a new error notification div
     const errorDiv = document.createElement('div');
     errorDiv.className = 'error-notification fixed top-4 right-4 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-fade-in-down';
     errorDiv.textContent = message;
     
-    document.body.appendChild(errorDiv); // Add to the body
+    document.body.appendChild(errorDiv);
     
-    // Set a timeout to remove the error message after 4 seconds
     setTimeout(() => {
         if (errorDiv.parentNode) {
-            errorDiv.classList.add('animate-fade-out-up'); // Start fade-out animation
-            // Remove the element from DOM after animation completes
+            errorDiv.classList.add('animate-fade-out-up');
             errorDiv.addEventListener('animationend', () => errorDiv.remove());
         }
     }, 4000);
@@ -471,34 +688,48 @@ function showError(message) {
  */
 function resetForm() {
     // Reset all global state variables
-    selectedFile = null;
-    fileData = null;
+    uploadedFiles = [];
     selectedTechnology = null;
+    selectedColor = null;
+    selectedResolution = null;
     orderData = {};
     
     // Hide success message and show main form
     document.getElementById('successMessage').classList.remove('active');
+    document.getElementById('orderProgressDisplay').classList.add('hidden'); // Hide progress display
     document.getElementById('mainForm').classList.remove('hidden');
     
-    // Reset file upload section by calling removeFile()
-    removeFile();
-    
+    // Clear progress steps
+    document.getElementById('progressSteps').innerHTML = '';
+
+    // Reset file upload section
+    document.getElementById('fileInput').value = ''; // Clear file input value
+    updateFileListUI(); // Clear file list UI
+    document.getElementById('uploadLoading').classList.remove('active');
+    clearSTLViewer(); // Clear the 3D viewer
+
     // Reset technology selection UI
     document.querySelectorAll('.tech-card').forEach(card => {
         card.classList.remove('selected');
         card.classList.remove('border-primary');
         card.classList.add('border-gray-300');
     });
-    document.getElementById('priceDisplay').classList.add('hidden'); // Hide price display
-    document.getElementById('summaryTechnology').textContent = 'Chưa chọn'; // Reset summary
-    document.getElementById('summaryMass').textContent = '---'; // Reset summary
-    
-    // Hide and reset technology image display
-    const techImageDisplay = document.getElementById('techImageDisplay');
-    techImageDisplay.classList.remove('active');
-    techImageDisplay.classList.add('hidden');
+    document.getElementById('techImageDisplay').classList.remove('active');
+    document.getElementById('techImageDisplay').classList.add('hidden');
     document.getElementById('techImage').src = '';
     document.getElementById('techDescription').textContent = '';
+
+    document.getElementById('priceDisplay').classList.add('hidden');
+    document.getElementById('summaryTechnology').textContent = 'Chưa chọn';
+    document.getElementById('summaryColor').textContent = 'Chưa chọn';
+    document.getElementById('summaryResolution').textContent = 'Chưa chọn';
+    document.getElementById('summaryTotalMass').textContent = '---';
+    
+    // Reset color and resolution sections
+    document.getElementById('colorSelectionSection').classList.add('hidden');
+    document.getElementById('resolutionSelectionSection').classList.add('hidden');
+    document.getElementById('colorOptions').innerHTML = '';
+    document.getElementById('resolutionOptions').innerHTML = '';
 
     // Clear customer information form fields
     document.getElementById('customerName').value = '';
@@ -512,4 +743,153 @@ function resetForm() {
     
     // Re-check form completion to set the submit button to its initial disabled state
     checkFormCompletion();
+}
+
+// --- Three.js STL Viewer Functions ---
+
+/**
+ * Initializes the Three.js scene, camera, and renderer for the STL viewer.
+ */
+function initializeSTLViewer() {
+    const canvas = document.getElementById('stlViewer');
+    
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xf0f0f0); // Light grey background
+
+    camera = new THREE.PerspectiveCamera(75, canvas.clientWidth / canvas.clientHeight, 0.1, 1000);
+    camera.position.set(0, 0, 50); // Initial camera position
+
+    renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true });
+    renderer.setSize(canvas.clientWidth, canvas.clientHeight);
+
+    // Add lights
+    const ambientLight = new THREE.AmbientLight(0x404040); // soft white light
+    scene.add(ambientLight);
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+    directionalLight.position.set(1, 1, 1).normalize();
+    scene.add(directionalLight);
+
+    stlLoader = new THREE.STLLoader();
+
+    // Basic OrbitControls for interaction (optional, but good for user experience)
+    // This requires OrbitControls.js, which is not included by default.
+    // For simplicity, I'll omit full OrbitControls setup but keep the idea.
+    // If you want full controls, you'd need:
+    // <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    // const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    // controls.enableDamping = true; // an animation loop is required when damping is enabled
+    // controls.dampingFactor = 0.25;
+    // controls.screenSpacePanning = false;
+    // controls.minDistance = 10;
+    // controls.maxDistance = 500;
+
+    // Handle mouse interaction for basic rotation (manual orbit-like behavior)
+    let isDragging = false;
+    let previousMousePosition = { x: 0, y: 0 };
+
+    canvas.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        previousMousePosition = { x: e.clientX, y: e.clientY };
+    });
+
+    canvas.addEventListener('mouseup', () => {
+        isDragging = false;
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+
+        const deltaX = e.clientX - previousMousePosition.x;
+        const deltaY = e.clientY - previousMousePosition.y;
+
+        // Apply rotation based on mouse movement
+        if (stlMesh) {
+            stlMesh.rotation.y += deltaX * 0.01;
+            stlMesh.rotation.x += deltaY * 0.01;
+        }
+
+        previousMousePosition = { x: e.clientX, y: e.clientY };
+        animateSTLViewer();
+    });
+
+    // Handle window resize
+    window.addEventListener('resize', () => {
+        const viewerCanvas = document.getElementById('stlViewer');
+        camera.aspect = viewerCanvas.clientWidth / viewerCanvas.clientHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(viewerCanvas.clientWidth, viewerCanvas.clientHeight);
+        animateSTLViewer();
+    });
+
+    animateSTLViewer(); // Start the animation loop
+}
+
+/**
+ * Renders an STL file in the Three.js viewer.
+ * @param {File} stlFile - The STL file object to render.
+ */
+function renderSTLPreview(stlFile) {
+    const reader = new FileReader();
+    reader.onload = function (event) {
+        const geometry = stlLoader.parse(event.target.result);
+        geometry.computeBoundingBox();
+        const material = new THREE.MeshLambertMaterial({ color: 0xAAAAAA, specular: 0x111111, shininess: 200 });
+
+        // Remove previous mesh if exists
+        if (stlMesh) {
+            scene.remove(stlMesh);
+            stlMesh.geometry.dispose();
+            stlMesh.material.dispose();
+        }
+
+        stlMesh = new THREE.Mesh(geometry, material);
+        scene.add(stlMesh);
+
+        // Center and scale the model
+        const boundingBox = geometry.boundingBox;
+        const center = new THREE.Vector3();
+        boundingBox.getCenter(center);
+        stlMesh.position.sub(center); // Center the mesh
+
+        const size = new THREE.Vector3();
+        boundingBox.getSize(size);
+        const maxDim = Math.max(size.x, size.y, size.z);
+        const scale = 30 / maxDim; // Scale to fit within a certain view size
+        stlMesh.scale.set(scale, scale, scale);
+
+        // Adjust camera to fit the model
+        camera.position.z = maxDim * 1.5;
+        camera.position.y = maxDim * 0.5;
+        camera.lookAt(scene.position);
+
+        document.getElementById('stlViewer').classList.remove('hidden');
+        document.getElementById('stlViewer').classList.add('active');
+        animateSTLViewer();
+    };
+    reader.readAsArrayBuffer(stlFile);
+}
+
+/**
+ * Clears the STL viewer.
+ */
+function clearSTLViewer() {
+    if (stlMesh) {
+        scene.remove(stlMesh);
+        stlMesh.geometry.dispose();
+        stlMesh.material.dispose();
+        stlMesh = null;
+    }
+    document.getElementById('stlViewer').classList.remove('active');
+    document.getElementById('stlViewer').classList.add('hidden');
+    animateSTLViewer();
+}
+
+/**
+ * Animation loop for the Three.js viewer.
+ */
+function animateSTLViewer() {
+    requestAnimationFrame(animateSTLViewer);
+    // If using OrbitControls, uncomment controls.update()
+    // if (controls) controls.update(); 
+    renderer.render(scene, camera);
 }
