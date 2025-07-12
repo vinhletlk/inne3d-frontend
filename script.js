@@ -1,5 +1,6 @@
 // Global variables to store application state
 let uploadedFiles = []; // Stores an array of file objects with their processed data
+let uploadedUrls = []; // Stores Cloudinary secure URLs
 let selectedTechnology = null; // Stores the chosen printing technology ('FDM' or 'Resin')
 let selectedColor = null; // Stores the selected printing color
 let selectedResolution = null; // Stores the selected printing resolution
@@ -7,6 +8,13 @@ let orderData = {}; // Stores all compiled order details before submission
 
 // Base URL for the backend API
 const API_BASE_URL = 'https://inne-production.up.railway.app';
+
+// Cloudinary configuration
+const CLOUDINARY_CONFIG = {
+    cloud_name: 'dytgw8sxi',
+    upload_preset: 'unsigned_upload',
+    upload_url: 'https://api.cloudinary.com/v1_1/dytgw8sxi/auto/upload'
+};
 
 // File size limits
 const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500MB
@@ -124,7 +132,7 @@ function handleDrop(event) {
 }
 
 /**
- * Adds a file to the processing queue and initiates its upload.
+ * Adds a file to the processing queue and initiates its upload to Cloudinary.
  * @param {File} file - The file object to be added.
  */
 function addFileToQueue(file) {
@@ -136,7 +144,7 @@ function addFileToQueue(file) {
     
     // Show warning for large files
     if (file.size > LARGE_FILE_THRESHOLD) {
-        showWarning(`File "${file.name}" khá lớn (${formatFileSize(file.size)}). Quá trình xử lý có thể mất nhiều thời gian và file sẽ được tối ưu hóa tự động.`);
+        showWarning(`File "${file.name}" khá lớn (${formatFileSize(file.size)}). Quá trình upload có thể mất nhiều thời gian.`);
     }
     
     const newFileEntry = {
@@ -146,54 +154,48 @@ function addFileToQueue(file) {
         size: file.size,
         mass_grams: null,
         volume_cm3: null,
+        cloudinary_url: null,
         processing: true // Flag to indicate processing state
     };
     uploadedFiles.push(newFileEntry);
     updateFileListUI(); // Update UI immediately to show file is added
     document.getElementById('uploadLoading').classList.add('active'); // Show global loading
 
-    uploadFile(newFileEntry); // Upload the individual file
+    uploadToCloudinary(newFileEntry); // Upload to Cloudinary first
 }
 
 /**
- * Uploads a single file to the backend API for processing (mass/volume calculation).
- * Updates the specific file entry in `uploadedFiles` array upon success.
+ * Uploads a single file to Cloudinary and then processes it for mass/volume calculation.
  * @param {Object} fileEntry - The file entry object from `uploadedFiles` array.
  */
-function uploadFile(fileEntry) {
+function uploadToCloudinary(fileEntry) {
     const formData = new FormData();
     formData.append('file', fileEntry.file);
+    formData.append('upload_preset', CLOUDINARY_CONFIG.upload_preset);
 
-    fetch(`${API_BASE_URL}/upload`, {
+    fetch(CLOUDINARY_CONFIG.upload_url, {
         method: 'POST',
         body: formData
     })
     .then(response => {
         if (!response.ok) {
-            // Handle specific error codes
-            if (response.status === 413) {
-                throw new Error('FILE_TOO_LARGE');
-            }
-            throw new Error(`HTTP error! status: ${response.status}`);
+            throw new Error(`Cloudinary upload failed: ${response.status}`);
         }
         return response.json();
     })
     .then(data => {
-        // Find the file entry and update its data
+        console.log('Cloudinary upload successful:', data);
+        
+        // Update file entry with Cloudinary URL
         const index = uploadedFiles.findIndex(f => f.id === fileEntry.id);
         if (index !== -1) {
-            uploadedFiles[index].mass_grams = data.mass_grams;
-            uploadedFiles[index].volume_cm3 = data.volume_cm3;
+            uploadedFiles[index].cloudinary_url = data.secure_url;
             uploadedFiles[index].processing = false; // Mark as processed
             
-            // Add optimization info if available
-            if (data.was_optimized) {
-                uploadedFiles[index].was_optimized = true;
-                uploadedFiles[index].original_size_mb = data.original_size_mb;
-                uploadedFiles[index].optimized_size_mb = data.optimized_size_mb;
-                uploadedFiles[index].compression_ratio = data.compression_ratio;
-            }
+            // Add to uploadedUrls array
+            uploadedUrls.push(data.secure_url);
         }
+        
         updateFileListUI(); // Update UI to show results for this file
         calculatePrice(); // Recalculate total price
         checkFormCompletion(); // Re-check form completion
@@ -207,9 +209,12 @@ function uploadFile(fileEntry) {
         if (fileEntry.name.toLowerCase().endsWith('.stl')) {
             renderSTLPreview(fileEntry.file);
         }
+        
+        // Show success message for this file
+        showSuccess(`File "${fileEntry.name}" đã được upload thành công!`);
     })
     .catch(error => {
-        console.error('Upload error for file', fileEntry.name, ':', error);
+        console.error('Cloudinary upload error for file', fileEntry.name, ':', error);
         const index = uploadedFiles.findIndex(f => f.id === fileEntry.id);
         if (index !== -1) {
             uploadedFiles.splice(index, 1); // Remove file on error
@@ -217,17 +222,20 @@ function uploadFile(fileEntry) {
         updateFileListUI();
         calculatePrice();
         
-        // Handle specific error types
-        if (error.message === 'FILE_TOO_LARGE') {
-            showError(`File "${fileEntry.name}" quá lớn (${formatFileSize(fileEntry.size)}). Kích thước tối đa là ${formatFileSize(MAX_FILE_SIZE)}. Vui lòng thử nén file hoặc chia nhỏ file.`);
-        } else {
-            showError(`Lỗi khi tải file "${fileEntry.name}" lên. Vui lòng thử lại.`);
-        }
+        showError(`Lỗi khi upload file "${fileEntry.name}" lên Cloudinary. Vui lòng thử lại.`);
         
         if (uploadedFiles.every(f => !f.processing)) {
             document.getElementById('uploadLoading').classList.remove('active');
         }
     });
+}
+
+/**
+ * Legacy function - kept for compatibility but now redirects to Cloudinary upload
+ * @param {Object} fileEntry - The file entry object from `uploadedFiles` array.
+ */
+function uploadFile(fileEntry) {
+    uploadToCloudinary(fileEntry);
 }
 
 /**
@@ -260,16 +268,17 @@ function updateFileListUI() {
         const listItem = document.createElement('li');
         listItem.className = 'flex items-center justify-between p-3 bg-gray-50 rounded-md border border-gray-200';
         
-        let massText = fileEntry.processing ? 'Đang xử lý...' : `${fileEntry.mass_grams.toFixed(2)} grams`;
+        let statusText = fileEntry.processing ? 'Đang upload...' : 'Đã upload';
+        let massText = fileEntry.mass_grams ? `${fileEntry.mass_grams.toFixed(2)} grams` : 'Chưa tính';
         if (fileEntry.mass_grams) {
             totalMass += fileEntry.mass_grams;
         }
 
-        let optimizationInfo = '';
-        if (fileEntry.was_optimized) {
-            optimizationInfo = `
-                <div class="mt-2 text-xs text-blue-600">
-                    <div>Đã tối ưu: ${fileEntry.original_size_mb}MB → ${fileEntry.optimized_size_mb}MB (${fileEntry.compression_ratio}%)</div>
+        let cloudinaryInfo = '';
+        if (fileEntry.cloudinary_url) {
+            cloudinaryInfo = `
+                <div class="mt-2 text-xs text-green-600">
+                    <div>✓ Đã upload lên Cloudinary</div>
                 </div>
             `;
         }
@@ -281,8 +290,8 @@ function updateFileListUI() {
                 </svg>
                 <div class="flex-grow">
                     <span class="text-gray-900 font-medium text-sm truncate">${fileEntry.name}</span>
-                    <span class="ml-auto text-gray-600 text-xs">${massText} • ${formatFileSize(fileEntry.size)}</span>
-                    ${optimizationInfo}
+                    <span class="ml-auto text-gray-600 text-xs">${statusText} • ${formatFileSize(fileEntry.size)}</span>
+                    ${cloudinaryInfo}
                 </div>
             </div>
             <button type="button" onclick="removeFile(${index})" class="ml-3 text-red-500 hover:text-red-700">
@@ -316,6 +325,16 @@ function updateFileListUI() {
  */
 function removeFile(index) {
     if (index > -1 && index < uploadedFiles.length) {
+        const removedFile = uploadedFiles[index];
+        
+        // Remove from uploadedUrls if it has a Cloudinary URL
+        if (removedFile.cloudinary_url) {
+            const urlIndex = uploadedUrls.indexOf(removedFile.cloudinary_url);
+            if (urlIndex > -1) {
+                uploadedUrls.splice(urlIndex, 1);
+            }
+        }
+        
         uploadedFiles.splice(index, 1); // Remove the file from the array
         updateFileListUI(); // Update the UI list
         calculatePrice(); // Recalculate price
@@ -569,7 +588,7 @@ function validateField(event) {
  * Checks if all required form fields are filled and enables/disables the submit button accordingly.
  */
 function checkFormCompletion() {
-    const hasFiles = uploadedFiles.length > 0 && uploadedFiles.every(f => !f.processing && f.mass_grams !== null);
+    const hasFiles = uploadedFiles.length > 0 && uploadedFiles.every(f => !f.processing && f.cloudinary_url);
     const hasTechnology = selectedTechnology !== null;
     const hasColor = selectedColor !== null;
     const hasResolution = selectedResolution !== null;
@@ -599,6 +618,13 @@ function submitOrder() {
         return;
     }
 
+    // Check if all files have been uploaded to Cloudinary
+    const unuploadedFiles = uploadedFiles.filter(file => !file.cloudinary_url);
+    if (unuploadedFiles.length > 0) {
+        showError('Vui lòng đợi tất cả file được upload hoàn tất trước khi đặt hàng.');
+        return;
+    }
+
     const totalMass = uploadedFiles.reduce((sum, f) => sum + (f.mass_grams || 0), 0);
     const totalVolume = uploadedFiles.reduce((sum, f) => sum + (f.volume_cm3 || 0), 0);
     const filenameList = uploadedFiles.map(f => f.name).join(', ');
@@ -608,6 +634,12 @@ function submitOrder() {
         phone: document.getElementById('customerPhone').value.trim(),
         address: document.getElementById('customerAddress').value.trim(),
         email: "", // If you have an email input field, get its value here
+        file_urls: uploadedUrls, // Add Cloudinary URLs
+        files: uploadedFiles.map(file => ({
+            name: file.name,
+            size: file.size,
+            cloudinary_url: file.cloudinary_url
+        })),
         quote: {
             filename: filenameList,
             mass_grams: totalMass,
@@ -709,8 +741,11 @@ function validateForm() {
         }
     });
     
-    if (uploadedFiles.length === 0 || !uploadedFiles.every(f => !f.processing && f.mass_grams !== null)) {
-        showError('Vui lòng tải lên ít nhất một file 3D và đợi xử lý xong.');
+    if (uploadedFiles.length === 0) {
+        showError('Vui lòng tải lên ít nhất một file 3D.');
+        isValid = false;
+    } else if (!uploadedFiles.every(f => !f.processing && f.cloudinary_url)) {
+        showError('Vui lòng đợi tất cả file được upload hoàn tất.');
         isValid = false;
     }
     
@@ -733,25 +768,46 @@ function validateForm() {
 }
 
 // UI Functions
-function showSuccess() {
-    document.getElementById('successMessage').classList.add('active');
-    document.getElementById('mainForm').classList.add('hidden');
+function showSuccess(message = 'Thao tác thành công!') {
+    // Create success notification
+    const successDiv = document.createElement('div');
+    successDiv.className = 'fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-fade-in-down';
+    successDiv.innerHTML = `
+        <div class="flex items-center">
+            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
+            <span>${message}</span>
+        </div>
+    `;
+    
+    document.body.appendChild(successDiv);
+    
+    setTimeout(() => {
+        if (successDiv.parentNode) {
+            successDiv.classList.add('animate-fade-out-up');
+            successDiv.addEventListener('animationend', () => successDiv.remove());
+        }
+    }, 4000);
 }
 
 function showError(message) {
     // Create error notification
+    const existingError = document.querySelector('.error-notification');
+    if (existingError) existingError.remove();
+
     const errorDiv = document.createElement('div');
-    errorDiv.className = 'fixed top-4 right-4 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg z-50';
+    errorDiv.className = 'error-notification fixed top-4 right-4 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-fade-in-down';
     errorDiv.textContent = message;
     
     document.body.appendChild(errorDiv);
     
-    // Remove after 5 seconds
     setTimeout(() => {
         if (errorDiv.parentNode) {
-            errorDiv.parentNode.removeChild(errorDiv);
+            errorDiv.classList.add('animate-fade-out-up');
+            errorDiv.addEventListener('animationend', () => errorDiv.remove());
         }
-    }, 5000);
+    }, 4000);
 }
 
 /**
@@ -760,6 +816,7 @@ function showError(message) {
 function resetForm() {
     // Reset all global state variables
     uploadedFiles = [];
+    uploadedUrls = []; // Reset Cloudinary URLs
     selectedTechnology = null;
     selectedColor = null;
     selectedResolution = null;
