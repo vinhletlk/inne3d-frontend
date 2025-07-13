@@ -229,9 +229,19 @@ function uploadToCloudinary(fileEntry) {
             document.getElementById('uploadLoading').classList.remove('active');
         }
 
-        // Render STL preview for the first uploaded STL file
-        if (fileEntry.name.toLowerCase().endsWith('.stl')) {
-            renderSTLPreview(fileEntry.file);
+        // Render STL preview for the first uploaded STL file only after full processing
+        if (fileEntry.name.toLowerCase().endsWith('.stl') && !fileEntry.processing) {
+            // Find the first STL file that's not being processed
+            const firstCompletedSTL = uploadedFiles.find(f => 
+                f.name.toLowerCase().endsWith('.stl') && 
+                !f.processing && 
+                f.cloudinary_url && 
+                f.mass_grams !== null
+            );
+            
+            if (firstCompletedSTL && firstCompletedSTL.id === fileEntry.id) {
+                renderSTLPreview(fileEntry.file);
+            }
         }
         
         // Show success message for this file
@@ -1068,8 +1078,15 @@ function renderSTLPreview(stlFile) {
             // Remove previous mesh if exists
             if (stlMesh) {
                 scene.remove(stlMesh);
-                stlMesh.geometry.dispose();
-                stlMesh.material.dispose();
+                // Properly dispose of geometry and material
+                if (stlMesh.geometry) {
+                    stlMesh.geometry.dispose();
+                }
+                if (stlMesh.material) {
+                    if (stlMesh.material.map) stlMesh.material.map.dispose();
+                    stlMesh.material.dispose();
+                }
+                stlMesh = null; // Clear reference
             }
 
             stlMesh = new THREE.Mesh(geometry, material);
@@ -1097,7 +1114,7 @@ function renderSTLPreview(stlFile) {
                 stlViewer.classList.remove('hidden');
                 stlViewer.classList.add('active');
             }
-            animateSTLViewer();
+            startAnimation();
         } catch (e) {
             console.error("Error rendering STL preview:", e);
             showError("Không thể hiển thị xem trước file STL. File có thể bị hỏng hoặc không hợp lệ.");
@@ -1113,8 +1130,14 @@ function renderSTLPreview(stlFile) {
 function clearSTLViewer() {
     if (stlMesh) {
         scene.remove(stlMesh);
-        stlMesh.geometry.dispose();
-        stlMesh.material.dispose();
+        // Properly dispose of geometry and material
+        if (stlMesh.geometry) {
+            stlMesh.geometry.dispose();
+        }
+        if (stlMesh.material) {
+            if (stlMesh.material.map) stlMesh.material.map.dispose();
+            stlMesh.material.dispose();
+        }
         stlMesh = null;
     }
     const stlViewer = document.getElementById('stlViewer');
@@ -1122,17 +1145,46 @@ function clearSTLViewer() {
         stlViewer.classList.remove('active');
         stlViewer.classList.add('hidden');
     }
-    animateSTLViewer();
+    stopAnimation();
 }
+
+// Global animation control variable
+let animationRunning = false;
+let animationId = null;
 
 /**
  * Animation loop for the Three.js viewer.
  */
 function animateSTLViewer() {
-    requestAnimationFrame(animateSTLViewer);
+    if (!animationRunning) {
+        return; // Stop animation if flag is false
+    }
+    
+    animationId = requestAnimationFrame(animateSTLViewer);
     // If using OrbitControls, uncomment controls.update()
     // if (controls) controls.update(); 
     if (renderer && scene && camera) { // Ensure Three.js components are initialized
         renderer.render(scene, camera);
+    }
+}
+
+/**
+ * Starts the animation loop.
+ */
+function startAnimation() {
+    if (!animationRunning) {
+        animationRunning = true;
+        animateSTLViewer();
+    }
+}
+
+/**
+ * Stops the animation loop.
+ */
+function stopAnimation() {
+    animationRunning = false;
+    if (animationId) {
+        cancelAnimationFrame(animationId);
+        animationId = null;
     }
 }
