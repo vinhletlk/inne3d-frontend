@@ -190,10 +190,34 @@ function uploadToCloudinary(fileEntry) {
         const index = uploadedFiles.findIndex(f => f.id === fileEntry.id);
         if (index !== -1) {
             uploadedFiles[index].cloudinary_url = data.secure_url;
-            uploadedFiles[index].processing = false; // Mark as processed
+            // No longer marking as processed here, as we still need to analyze it
+        }
+        
+        // Now, send the Cloudinary URL to your backend for mass/volume analysis
+        return fetch(`${API_BASE_URL}/analyze-url`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ file_url: data.secure_url })
+        });
+    })
+    .then(response => {
+        if (!response.ok) {
+            throw new Error(`Backend analysis failed: ${response.status}`);
+        }
+        return response.json();
+    })
+    .then(analysisData => {
+        console.log('Backend analysis successful:', analysisData);
+        const index = uploadedFiles.findIndex(f => f.id === fileEntry.id);
+        if (index !== -1) {
+            uploadedFiles[index].mass_grams = analysisData.mass_grams;
+            uploadedFiles[index].volume_cm3 = analysisData.volume_cm3;
+            uploadedFiles[index].processing = false; // Mark as fully processed
             
-            // Add to uploadedUrls array
-            uploadedUrls.push(data.secure_url);
+            // Add to uploadedUrls array (only after full processing)
+            uploadedUrls.push(uploadedFiles[index].cloudinary_url);
         }
         
         updateFileListUI(); // Update UI to show results for this file
@@ -211,10 +235,10 @@ function uploadToCloudinary(fileEntry) {
         }
         
         // Show success message for this file
-        showSuccess(`File "${fileEntry.name}" đã được upload thành công!`);
+        showSuccess(`File "${fileEntry.name}" đã được upload và phân tích thành công!`);
     })
     .catch(error => {
-        console.error('Cloudinary upload error for file', fileEntry.name, ':', error);
+        console.error('File processing error for file', fileEntry.name, ':', error);
         const index = uploadedFiles.findIndex(f => f.id === fileEntry.id);
         if (index !== -1) {
             uploadedFiles.splice(index, 1); // Remove file on error
@@ -222,7 +246,7 @@ function uploadToCloudinary(fileEntry) {
         updateFileListUI();
         calculatePrice();
         
-        showError(`Lỗi khi upload file "${fileEntry.name}" lên Cloudinary. Vui lòng thử lại.`);
+        showError(`Lỗi khi xử lý file "${fileEntry.name}". Vui lòng thử lại.`);
         
         if (uploadedFiles.every(f => !f.processing)) {
             document.getElementById('uploadLoading').classList.remove('active');
@@ -268,7 +292,15 @@ function updateFileListUI() {
         const listItem = document.createElement('li');
         listItem.className = 'flex items-center justify-between p-3 bg-gray-50 rounded-md border border-gray-200';
         
-        let statusText = fileEntry.processing ? 'Đang upload...' : 'Đã upload';
+        let statusText = 'Đang xử lý...';
+        if (fileEntry.cloudinary_url && fileEntry.mass_grams !== null) {
+            statusText = 'Đã hoàn tất';
+        } else if (fileEntry.cloudinary_url) {
+            statusText = 'Đang phân tích...';
+        } else if (!fileEntry.processing) {
+            statusText = 'Lỗi upload'; // Should not happen with current logic, but as a fallback
+        }
+
         let massText = fileEntry.mass_grams ? `${fileEntry.mass_grams.toFixed(2)} grams` : 'Chưa tính';
         if (fileEntry.mass_grams) {
             totalMass += fileEntry.mass_grams;
@@ -603,7 +635,7 @@ function validateField(event) {
  * Checks if all required form fields are filled and enables/disables the submit button accordingly.
  */
 function checkFormCompletion() {
-    const hasFiles = uploadedFiles.length > 0 && uploadedFiles.every(f => !f.processing && f.cloudinary_url);
+    const hasFiles = uploadedFiles.length > 0 && uploadedFiles.every(f => !f.processing && f.cloudinary_url && f.mass_grams !== null);
     const hasTechnology = selectedTechnology !== null;
     const hasColor = selectedColor !== null;
     const hasResolution = selectedResolution !== null;
@@ -646,7 +678,9 @@ function submitOrder() {
         files: uploadedFiles.map(file => ({
             name: file.name,
             size: file.size,
-            cloudinary_url: file.cloudinary_url
+            cloudinary_url: file.cloudinary_url,
+            mass_grams: file.mass_grams, // Include mass_grams and volume_cm3 from frontend analysis
+            volume_cm3: file.volume_cm3
         })),
         quote: {
             filename: filenameList,
@@ -752,8 +786,8 @@ function validateForm() {
     if (uploadedFiles.length === 0) {
         showError('Vui lòng tải lên ít nhất một file 3D.');
         isValid = false;
-    } else if (!uploadedFiles.every(f => !f.processing && f.cloudinary_url)) {
-        showError('Vui lòng đợi tất cả file được upload hoàn tất.');
+    } else if (!uploadedFiles.every(f => !f.processing && f.cloudinary_url && f.mass_grams !== null)) {
+        showError('Vui lòng đợi tất cả file được upload và phân tích hoàn tất.');
         isValid = false;
     }
     
