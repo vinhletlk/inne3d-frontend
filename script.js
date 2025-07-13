@@ -431,7 +431,7 @@ function renderColorOptions(technology) {
         availableColors.forEach(color => {
             const colorDiv = document.createElement('div');
             colorDiv.className = 'flex items-center p-2 border border-gray-300 rounded-md cursor-pointer hover:bg-gray-50 transition-colors';
-            colorDiv.onclick = () => selectColor(color.name);
+            colorDiv.onclick = (event) => selectColor(color.name, event.currentTarget); // Pass currentTarget
             
             colorDiv.innerHTML = `
                 <div class="w-5 h-5 rounded-full mr-2 border border-gray-300" style="background-color: ${color.hex};"></div>
@@ -448,8 +448,9 @@ function renderColorOptions(technology) {
 /**
  * Handles the selection of a printing color.
  * @param {string} colorName - The name of the selected color.
+ * @param {HTMLElement} clickedElement - The element that was clicked.
  */
-function selectColor(colorName) {
+function selectColor(colorName, clickedElement) {
     selectedColor = colorName;
     
     const summaryColor = document.getElementById('summaryColor');
@@ -460,8 +461,8 @@ function selectColor(colorName) {
         div.classList.remove('border-primary', 'bg-blue-50');
         div.classList.add('border-gray-300');
     });
-    event.currentTarget.classList.remove('border-gray-300');
-    event.currentTarget.classList.add('border-primary', 'bg-blue-50');
+    clickedElement.classList.remove('border-gray-300');
+    clickedElement.classList.add('border-primary', 'bg-blue-50');
 
     calculatePrice();
     checkFormCompletion();
@@ -482,7 +483,7 @@ function renderResolutionOptions() {
     RESOLUTIONS.forEach(resolution => {
         const resolutionDiv = document.createElement('div');
         resolutionDiv.className = 'flex items-center p-2 border border-gray-300 rounded-md cursor-pointer hover:bg-gray-50 transition-colors';
-        resolutionDiv.onclick = () => selectResolution(resolution.value);
+        resolutionDiv.onclick = (event) => selectResolution(resolution.value, event.currentTarget); // Pass currentTarget
 
         resolutionDiv.innerHTML = `
             <span class="text-sm font-medium text-gray-800">${resolution.label}</span>
@@ -494,8 +495,9 @@ function renderResolutionOptions() {
 /**
  * Handles the selection of a printing resolution.
  * @param {number} resolutionValue - The value of the selected resolution (e.g., 100, 200, 300).
+ * @param {HTMLElement} clickedElement - The element that was clicked.
  */
-function selectResolution(resolutionValue) {
+function selectResolution(resolutionValue, clickedElement) {
     selectedResolution = resolutionValue;
     
     const summaryResolution = document.getElementById('summaryResolution');
@@ -506,8 +508,8 @@ function selectResolution(resolutionValue) {
         div.classList.remove('border-primary', 'bg-blue-50');
         div.classList.add('border-gray-300');
     });
-    event.currentTarget.classList.remove('border-gray-300');
-    event.currentTarget.classList.add('border-primary', 'bg-blue-50');
+    clickedElement.classList.remove('border-gray-300');
+    clickedElement.classList.add('border-primary', 'bg-blue-50');
 
     calculatePrice();
     checkFormCompletion();
@@ -555,12 +557,20 @@ function calculatePrice() {
     });
 }
 
+/**
+ * Displays the calculated price on the UI.
+ * @param {number} price - The calculated price amount.
+ */
 function displayPrice(price) {
     document.getElementById('priceAmount').textContent = `${price.toLocaleString('vi-VN')} VNĐ`;
     document.getElementById('priceDisplay').classList.remove('hidden');
 }
 
-// Form Validation and Submission
+// --- Form Validation and Submission ---
+
+/**
+ * Initializes event listeners for form input validation.
+ */
 function initializeFormValidation() {
     const inputs = ['customerName', 'customerPhone', 'customerAddress'];
     
@@ -571,6 +581,11 @@ function initializeFormValidation() {
     });
 }
 
+/**
+ * Validates a single form field and applies visual feedback.
+ * @param {Event} event - The event object (e.g., 'blur' or 'input').
+ * @returns {boolean} - True if the field is valid, false otherwise.
+ */
 function validateField(event) {
     const field = event.target;
     const value = field.value.trim();
@@ -615,13 +630,6 @@ function checkFormCompletion() {
  */
 function submitOrder() {
     if (!validateForm()) {
-        return;
-    }
-
-    // Check if all files have been uploaded to Cloudinary
-    const unuploadedFiles = uploadedFiles.filter(file => !file.cloudinary_url);
-    if (unuploadedFiles.length > 0) {
-        showError('Vui lòng đợi tất cả file được upload hoàn tất trước khi đặt hàng.');
         return;
     }
 
@@ -811,6 +819,49 @@ function showError(message) {
 }
 
 /**
+ * Displays a temporary warning notification.
+ * @param {string} message - The warning message to display.
+ */
+function showWarning(message) {
+    const existingWarning = document.querySelector('.warning-notification');
+    if (existingWarning) existingWarning.remove();
+
+    const warningDiv = document.createElement('div');
+    warningDiv.className = 'warning-notification fixed top-4 right-4 bg-yellow-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-fade-in-down';
+    warningDiv.innerHTML = `
+        <div class="flex items-center">
+            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+            </svg>
+            <span>${message}</span>
+        </div>
+    `;
+    
+    document.body.appendChild(warningDiv);
+    
+    setTimeout(() => {
+        if (warningDiv.parentNode) {
+            warningDiv.classList.add('animate-fade-out-up');
+            warningDiv.addEventListener('animationend', () => warningDiv.remove());
+        }
+    }, 5000);
+}
+
+/**
+ * Formats file size into a human-readable string (e.g., KB, MB, GB).
+ * @param {number} bytes - The file size in bytes.
+ * @returns {string} - Formatted file size string.
+ */
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+
+/**
  * Resets the entire form to its initial state.
  */
 function resetForm() {
@@ -840,7 +891,8 @@ function resetForm() {
     const fileInput = document.getElementById('fileInput');
     if (fileInput) fileInput.value = ''; // Clear file input value
     updateFileListUI(); // Clear file list UI
-    document.getElementById('uploadLoading').classList.remove('active');
+    const uploadLoading = document.getElementById('uploadLoading');
+    if (uploadLoading) uploadLoading.classList.remove('active');
     clearSTLViewer(); // Clear the 3D viewer
 
     // Reset technology selection UI
@@ -849,54 +901,42 @@ function resetForm() {
         card.classList.remove('border-primary');
         card.classList.add('border-gray-300');
     });
-    
     const techImageDisplay = document.getElementById('techImageDisplay');
     if (techImageDisplay) {
         techImageDisplay.classList.remove('active');
         techImageDisplay.classList.add('hidden');
     }
-    
     const techImage = document.getElementById('techImage');
     if (techImage) techImage.src = '';
-    
     const techDescription = document.getElementById('techDescription');
     if (techDescription) techDescription.textContent = '';
 
     const priceDisplay = document.getElementById('priceDisplay');
     if (priceDisplay) priceDisplay.classList.add('hidden');
-    
     const summaryTechnology = document.getElementById('summaryTechnology');
     if (summaryTechnology) summaryTechnology.textContent = 'Chưa chọn';
-    
     const summaryColor = document.getElementById('summaryColor');
     if (summaryColor) summaryColor.textContent = 'Chưa chọn';
-    
     const summaryResolution = document.getElementById('summaryResolution');
     if (summaryResolution) summaryResolution.textContent = 'Chưa chọn';
-    
     const summaryTotalMass = document.getElementById('summaryTotalMass');
     if (summaryTotalMass) summaryTotalMass.textContent = '---';
     
     // Reset color and resolution sections
     const colorSelectionSection = document.getElementById('colorSelectionSection');
     if (colorSelectionSection) colorSelectionSection.classList.add('hidden');
-    
     const resolutionSelectionSection = document.getElementById('resolutionSelectionSection');
     if (resolutionSelectionSection) resolutionSelectionSection.classList.add('hidden');
-    
     const colorOptions = document.getElementById('colorOptions');
     if (colorOptions) colorOptions.innerHTML = '';
-    
     const resolutionOptions = document.getElementById('resolutionOptions');
     if (resolutionOptions) resolutionOptions.innerHTML = '';
 
     // Clear customer information form fields
     const customerName = document.getElementById('customerName');
     if (customerName) customerName.value = '';
-    
     const customerPhone = document.getElementById('customerPhone');
     if (customerPhone) customerPhone.value = '';
-    
     const customerAddress = document.getElementById('customerAddress');
     if (customerAddress) customerAddress.value = '';
     
@@ -916,8 +956,8 @@ function resetForm() {
  */
 function initializeSTLViewer() {
     const canvas = document.getElementById('stlViewer');
-    if (!canvas) return; // If element doesn't exist, skip
-    
+    if (!canvas) return; // Ensure canvas exists
+
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0xf0f0f0); // Light grey background
 
@@ -968,7 +1008,7 @@ function initializeSTLViewer() {
     // Handle window resize
     window.addEventListener('resize', () => {
         const viewerCanvas = document.getElementById('stlViewer');
-        if (viewerCanvas && camera && renderer) {
+        if (viewerCanvas) { // Check if viewerCanvas exists before accessing properties
             camera.aspect = viewerCanvas.clientWidth / viewerCanvas.clientHeight;
             camera.updateProjectionMatrix();
             renderer.setSize(viewerCanvas.clientWidth, viewerCanvas.clientHeight);
@@ -984,47 +1024,51 @@ function initializeSTLViewer() {
  * @param {File} stlFile - The STL file object to render.
  */
 function renderSTLPreview(stlFile) {
-    if (!stlLoader) return; // If Three.js is not loaded, skip
-    
     const reader = new FileReader();
     reader.onload = function (event) {
-        const geometry = stlLoader.parse(event.target.result);
-        geometry.computeBoundingBox();
-        const material = new THREE.MeshLambertMaterial({ color: 0xAAAAAA, specular: 0x111111, shininess: 200 });
+        try {
+            const geometry = stlLoader.parse(event.target.result);
+            geometry.computeBoundingBox();
+            const material = new THREE.MeshLambertMaterial({ color: 0xAAAAAA, specular: 0x111111, shininess: 200 });
 
-        // Remove previous mesh if exists
-        if (stlMesh) {
-            scene.remove(stlMesh);
-            stlMesh.geometry.dispose();
-            stlMesh.material.dispose();
+            // Remove previous mesh if exists
+            if (stlMesh) {
+                scene.remove(stlMesh);
+                stlMesh.geometry.dispose();
+                stlMesh.material.dispose();
+            }
+
+            stlMesh = new THREE.Mesh(geometry, material);
+            scene.add(stlMesh);
+
+            // Center and scale the model
+            const boundingBox = geometry.boundingBox;
+            const center = new THREE.Vector3();
+            boundingBox.getCenter(center);
+            stlMesh.position.sub(center); // Center the mesh
+
+            const size = new THREE.Vector3();
+            boundingBox.getSize(size);
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const scale = 30 / maxDim; // Scale to fit within a certain view size
+            stlMesh.scale.set(scale, scale, scale);
+
+            // Adjust camera to fit the model
+            camera.position.z = maxDim * 1.5;
+            camera.position.y = maxDim * 0.5;
+            camera.lookAt(scene.position);
+
+            const stlViewer = document.getElementById('stlViewer');
+            if (stlViewer) {
+                stlViewer.classList.remove('hidden');
+                stlViewer.classList.add('active');
+            }
+            animateSTLViewer();
+        } catch (e) {
+            console.error("Error rendering STL preview:", e);
+            showError("Không thể hiển thị xem trước file STL. File có thể bị hỏng hoặc không hợp lệ.");
+            clearSTLViewer(); // Clear viewer on error
         }
-
-        stlMesh = new THREE.Mesh(geometry, material);
-        scene.add(stlMesh);
-
-        // Center and scale the model
-        const boundingBox = geometry.boundingBox;
-        const center = new THREE.Vector3();
-        boundingBox.getCenter(center);
-        stlMesh.position.sub(center); // Center the mesh
-
-        const size = new THREE.Vector3();
-        boundingBox.getSize(size);
-        const maxDim = Math.max(size.x, size.y, size.z);
-        const scale = 30 / maxDim; // Scale to fit within a certain view size
-        stlMesh.scale.set(scale, scale, scale);
-
-        // Adjust camera to fit the model
-        camera.position.z = maxDim * 1.5;
-        camera.position.y = maxDim * 0.5;
-        camera.lookAt(scene.position);
-
-        const stlViewer = document.getElementById('stlViewer');
-        if (stlViewer) {
-            stlViewer.classList.remove('hidden');
-            stlViewer.classList.add('active');
-        }
-        animateSTLViewer();
     };
     reader.readAsArrayBuffer(stlFile);
 }
@@ -1051,99 +1095,10 @@ function clearSTLViewer() {
  * Animation loop for the Three.js viewer.
  */
 function animateSTLViewer() {
-    if (!renderer || !scene || !camera) return;
-    
     requestAnimationFrame(animateSTLViewer);
-    renderer.render(scene, camera);
+    // If using OrbitControls, uncomment controls.update()
+    // if (controls) controls.update(); 
+    if (renderer && scene && camera) { // Ensure Three.js components are initialized
+        renderer.render(scene, camera);
+    }
 }
-
-// --- UI Utility Functions ---
-
-/**
- * Displays the success message and hides the main form.
- */
-function showSuccess() {
-    const successMessage = document.getElementById('successMessage');
-    if (successMessage) successMessage.classList.add('active');
-    
-    const mainForm = document.getElementById('mainForm');
-    if (mainForm) mainForm.classList.add('hidden');
-}
-
-/**
- * Displays a temporary error notification.
- * @param {string} message - The error message to display.
- */
-function showError(message) {
-    const existingError = document.querySelector('.error-notification');
-    if (existingError) existingError.remove();
-
-    const errorDiv = document.createElement('div');
-    errorDiv.className = 'error-notification fixed top-4 right-4 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-fade-in-down';
-    errorDiv.textContent = message;
-    
-    document.body.appendChild(errorDiv);
-    
-    setTimeout(() => {
-        if (errorDiv.parentNode) {
-            errorDiv.classList.add('animate-fade-out-up');
-            errorDiv.addEventListener('animationend', () => errorDiv.remove());
-        }
-    }, 4000);
-}
-
-/**
- * Displays a temporary warning notification.
- * @param {string} message - The warning message to display.
- */
-function showWarning(message) {
-    const existingWarning = document.querySelector('.warning-notification');
-    if (existingWarning) existingWarning.remove();
-
-    const warningDiv = document.createElement('div');
-    warningDiv.className = 'warning-notification fixed top-4 right-4 bg-yellow-500 text-white px-6 py-3 rounded-lg shadow-lg z-50 animate-fade-in-down';
-    warningDiv.innerHTML = `
-        <div class="flex items-center">
-            <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
-            </svg>
-            <span>${message}</span>
-        </div>
-    `;
-    
-    document.body.appendChild(warningDiv);
-    
-    setTimeout(() => {
-        if (warningDiv.parentNode) {
-            warningDiv.classList.add('animate-fade-out-up');
-            warningDiv.addEventListener('animationend', () => warningDiv.remove());
-        }
-    }, 8000);
-}
-
-// --- Utility Functions ---
-
-/**
- * Formats a number as Vietnamese currency.
- * @param {number} amount - The amount to format.
- * @returns {string} - The formatted currency string.
- */
-function formatCurrency(amount) {
-    return new Intl.NumberFormat('vi-VN', {
-        style: 'currency',
-        currency: 'VND'
-    }).format(amount);
-}
-
-/**
- * Formats file size in bytes to human readable format.
- * @param {number} bytes - The size in bytes.
- * @returns {string} - The formatted size string.
- */
-function formatFileSize(bytes) {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-} 
